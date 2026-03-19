@@ -6,14 +6,21 @@ using UnityEngine.Android;
 
 public class MozartSpatialBridge : MonoBehaviour
 {
-    [Header("Optional Content Root")]
+    [Header("Content Roots")]
     [SerializeField] private Transform contentOrigin;
+    [SerializeField] private Transform sceneMeshOrigin;
+    [SerializeField] private Transform roomReferenceRoot;
 
     [Header("Alignment")]
     [SerializeField] private bool alignOriginToScannedRoom = true;
     [SerializeField] private bool useFloorAnchorAsSpatialReference = true;
+    [SerializeField] private bool flattenRoomReferenceToWorldUp = true;
+    [SerializeField] private bool captureInitialOriginOffsetOnStart = true;
 
-    private Transform _roomAlignmentReference;
+    private Vector3 _initialOriginLocalPosition = Vector3.zero;
+    private Quaternion _initialOriginLocalRotation = Quaternion.identity;
+    private Vector3 _initialOriginLocalScale = Vector3.one;
+    private bool _initialOriginOffsetCaptured;
 
     private void OnEnable()
     {
@@ -43,6 +50,8 @@ public class MozartSpatialBridge : MonoBehaviour
 
     private async void Start()
     {
+        CaptureInitialOriginOffsetIfNeeded();
+        EnsureHierarchyRoots();
         LogSpatialState("start");
         StartCoroutine(LogDelayedStates());
         await EnsureDeviceSceneLoadedAsync();
@@ -140,31 +149,29 @@ public class MozartSpatialBridge : MonoBehaviour
             return false;
         }
 
+        CaptureInitialOriginOffsetIfNeeded();
+        EnsureHierarchyRoots();
+
         if (!TryGetCurrentRoomReference(out Transform referenceParent, out Vector3 referencePosition, out Quaternion referenceRotation))
         {
             return false;
         }
 
-        if (_roomAlignmentReference == null)
-        {
-            _roomAlignmentReference = new GameObject("RoomAlignmentReference").transform;
-        }
-
-        _roomAlignmentReference.SetParent(null, false);
-        _roomAlignmentReference.SetPositionAndRotation(referencePosition, referenceRotation);
+        roomReferenceRoot.SetParent(null, false);
+        roomReferenceRoot.SetPositionAndRotation(referencePosition, referenceRotation);
         if (referenceParent != null)
         {
-            _roomAlignmentReference.SetParent(referenceParent, true);
+            roomReferenceRoot.SetParent(referenceParent, true);
         }
 
-        if (contentOrigin.parent != _roomAlignmentReference)
+        if (contentOrigin.parent != roomReferenceRoot)
         {
-            contentOrigin.SetParent(_roomAlignmentReference, false);
+            contentOrigin.SetParent(roomReferenceRoot, false);
         }
 
-        contentOrigin.localPosition = Vector3.zero;
-        contentOrigin.localRotation = Quaternion.identity;
-        contentOrigin.localScale = Vector3.one;
+        contentOrigin.localPosition = _initialOriginLocalPosition;
+        contentOrigin.localRotation = _initialOriginLocalRotation;
+        contentOrigin.localScale = _initialOriginLocalScale;
         return true;
     }
 
@@ -184,14 +191,89 @@ public class MozartSpatialBridge : MonoBehaviour
         {
             referenceParent = room.FloorAnchor.transform;
             referencePosition = room.FloorAnchor.GetAnchorCenter();
-            referenceRotation = room.FloorAnchor.transform.rotation;
+            referenceRotation = GetReferenceRotation(room.FloorAnchor.transform.rotation);
             return true;
         }
 
         referenceParent = room.transform;
         referencePosition = room.transform.position;
-        referenceRotation = room.transform.rotation;
+        referenceRotation = GetReferenceRotation(room.transform.rotation);
         return true;
+    }
+
+    private Quaternion GetReferenceRotation(Quaternion sourceRotation)
+    {
+        if (!flattenRoomReferenceToWorldUp)
+        {
+            return sourceRotation;
+        }
+
+        Vector3 flattenedForward = Vector3.ProjectOnPlane(sourceRotation * Vector3.forward, Vector3.up);
+        if (flattenedForward.sqrMagnitude < 1e-6f)
+        {
+            return Quaternion.identity;
+        }
+
+        return Quaternion.LookRotation(flattenedForward.normalized, Vector3.up);
+    }
+
+    private void EnsureHierarchyRoots()
+    {
+        if (contentOrigin == null && GameManager.Instance != null)
+        {
+            contentOrigin = GameManager.Instance.Origin;
+        }
+
+        if (sceneMeshOrigin == null && GameManager.Instance != null)
+        {
+            sceneMeshOrigin = GameManager.Instance.SceneMeshOrigin;
+        }
+
+        if (roomReferenceRoot == null)
+        {
+            var existingRoot = transform.Find("RoomReferenceRoot");
+            roomReferenceRoot = existingRoot != null
+                ? existingRoot
+                : new GameObject("RoomReferenceRoot").transform;
+        }
+
+        if (roomReferenceRoot.parent != transform)
+        {
+            roomReferenceRoot.SetParent(transform, true);
+        }
+
+        if (contentOrigin != null && contentOrigin.parent != roomReferenceRoot)
+        {
+            contentOrigin.SetParent(roomReferenceRoot, true);
+        }
+
+        if (contentOrigin != null && sceneMeshOrigin != null && sceneMeshOrigin.parent != contentOrigin)
+        {
+            sceneMeshOrigin.SetParent(contentOrigin, true);
+        }
+    }
+
+    private void CaptureInitialOriginOffsetIfNeeded()
+    {
+        if (_initialOriginOffsetCaptured || contentOrigin == null)
+        {
+            return;
+        }
+
+        if (captureInitialOriginOffsetOnStart)
+        {
+            _initialOriginLocalPosition = contentOrigin.localPosition;
+            _initialOriginLocalRotation = contentOrigin.localRotation;
+            _initialOriginLocalScale = contentOrigin.localScale;
+        }
+        else
+        {
+            _initialOriginLocalPosition = Vector3.zero;
+            _initialOriginLocalRotation = Quaternion.identity;
+            _initialOriginLocalScale = Vector3.one;
+        }
+
+        _initialOriginOffsetCaptured = true;
     }
 
     private void LogSpatialState(string phase)
