@@ -1,0 +1,12 @@
+# Material file for mesh.obj
+# Generated: mesh.mtl
+
+newmtl mesh-3hz-4
+Ns 96.078431
+Ka 1.000000 1.000000 1.000000
+Kd 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+d 1.0
+illum 2
+# Diffuse texture (relative path; loader resolves relative to OBJ URL)
+map_Kd mesh-3hz-4.jpg

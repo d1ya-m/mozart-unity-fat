@@ -1,0 +1,3 @@
+[submodule "Packages/mozart-unity-shared"]
+	path = Packages/mozart-unity-shared
+	url = git@github.com:robofit/mozart-unity-shared.git
