@@ -16125,6 +16125,57 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 5949587551690473437, guid: f894e8dbff0f30b4d8407fd65526d64c, type: 3}
   m_PrefabInstance: {fileID: 2064008353711457785}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &790070966
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 790070967}
+  - component: {fileID: 790070968}
+  m_Layer: 0
+  m_Name: SpatialBridgeManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &790070967
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 790070966}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 833117670}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &790070968
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 790070966}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b8f13cd8572145b69613c4bc7a64a241, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MozartSpatialBridge
+  contentOrigin: {fileID: 1539966880}
+  sceneMeshOrigin: {fileID: 186001607}
+  roomReferenceRoot: {fileID: 1378481296}
+  alignOriginToScannedRoom: 1
+  useFloorAnchorAsSpatialReference: 1
+  flattenRoomReferenceToWorldUp: 1
+  captureInitialOriginOffsetOnStart: 1
 --- !u!1 &815286553
 GameObject:
   m_ObjectHideFlags: 0
@@ -16197,6 +16248,7 @@ Transform:
   - {fileID: 1031222786}
   - {fileID: 438133908}
   - {fileID: 221466834}
+  - {fileID: 790070967}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &833117671
@@ -25326,6 +25378,38 @@ MonoBehaviour:
     ReEnterDistance: 0.02
   _closeDistanceThreshold: 0.001
   _tiebreakerScore: 0
+--- !u!1 &1378481295
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1378481296}
+  m_Layer: 0
+  m_Name: RoomReferenceRoot
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1378481296
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1378481295}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: -0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 1539966880}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1383587384
 GameObject:
   m_ObjectHideFlags: 0
@@ -29963,7 +30047,7 @@ Transform:
   m_Children:
   - {fileID: 1387360148544113754}
   - {fileID: 186001607}
-  m_Father: {fileID: 0}
+  m_Father: {fileID: 1378481296}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1539966881
 MonoBehaviour:
@@ -52199,6 +52283,6 @@ SceneRoots:
   - {fileID: 190302760}
   - {fileID: 677618511}
   - {fileID: 1996085072}
-  - {fileID: 1539966880}
   - {fileID: 1429115244}
   - {fileID: 304355935}
+  - {fileID: 1378481296}

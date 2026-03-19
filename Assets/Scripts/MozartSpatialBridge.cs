@@ -21,40 +21,32 @@ public class MozartSpatialBridge : MonoBehaviour
     private Quaternion _initialOriginLocalRotation = Quaternion.identity;
     private Vector3 _initialOriginLocalScale = Vector3.one;
     private bool _initialOriginOffsetCaptured;
+    private bool _mrukEventsRegistered;
+    private Coroutine _alignmentRetryCoroutine;
 
     private void OnEnable()
     {
-        if (MRUK.Instance == null)
-        {
-            return;
-        }
-
-        MRUK.Instance.SceneLoadedEvent.AddListener(OnSceneLoaded);
-        MRUK.Instance.RoomCreatedEvent.AddListener(OnRoomCreated);
-        MRUK.Instance.RoomUpdatedEvent.AddListener(OnRoomUpdated);
-        MRUK.Instance.RoomRemovedEvent.AddListener(OnRoomRemoved);
+        TryRegisterMrukEvents();
+        StartAlignmentRetryLoop();
     }
 
     private void OnDisable()
     {
-        if (MRUK.Instance == null)
-        {
-            return;
-        }
-
-        MRUK.Instance.SceneLoadedEvent.RemoveListener(OnSceneLoaded);
-        MRUK.Instance.RoomCreatedEvent.RemoveListener(OnRoomCreated);
-        MRUK.Instance.RoomUpdatedEvent.RemoveListener(OnRoomUpdated);
-        MRUK.Instance.RoomRemovedEvent.RemoveListener(OnRoomRemoved);
+        StopAlignmentRetryLoop();
+        UnregisterMrukEvents();
     }
 
     private async void Start()
     {
         CaptureInitialOriginOffsetIfNeeded();
         EnsureHierarchyRoots();
+        TryAlignOriginToCurrentRoom();
         LogSpatialState("start");
         StartCoroutine(LogDelayedStates());
         await EnsureDeviceSceneLoadedAsync();
+        TryRegisterMrukEvents();
+        TryAlignOriginToCurrentRoom();
+        StartAlignmentRetryLoop();
     }
 
     private void OnSceneLoaded()
@@ -157,6 +149,7 @@ public class MozartSpatialBridge : MonoBehaviour
             return false;
         }
 
+        string previousParentName = roomReferenceRoot.parent != null ? roomReferenceRoot.parent.name : "<root>";
         roomReferenceRoot.SetParent(null, false);
         roomReferenceRoot.SetPositionAndRotation(referencePosition, referenceRotation);
         if (referenceParent != null)
@@ -172,6 +165,8 @@ public class MozartSpatialBridge : MonoBehaviour
         contentOrigin.localPosition = _initialOriginLocalPosition;
         contentOrigin.localRotation = _initialOriginLocalRotation;
         contentOrigin.localScale = _initialOriginLocalScale;
+        string currentParentName = roomReferenceRoot.parent != null ? roomReferenceRoot.parent.name : "<root>";
+        Debug.Log($"[MozartSpatialBridge] Aligned room reference root. Parent: {previousParentName} -> {currentParentName}");
         return true;
     }
 
@@ -235,11 +230,7 @@ public class MozartSpatialBridge : MonoBehaviour
             roomReferenceRoot = existingRoot != null
                 ? existingRoot
                 : new GameObject("RoomReferenceRoot").transform;
-        }
-
-        if (roomReferenceRoot.parent != transform)
-        {
-            roomReferenceRoot.SetParent(transform, true);
+            roomReferenceRoot.SetParent(transform, false);
         }
 
         if (contentOrigin != null && contentOrigin.parent != roomReferenceRoot)
@@ -274,6 +265,80 @@ public class MozartSpatialBridge : MonoBehaviour
         }
 
         _initialOriginOffsetCaptured = true;
+    }
+
+    private void TryRegisterMrukEvents()
+    {
+        if (_mrukEventsRegistered || MRUK.Instance == null)
+        {
+            return;
+        }
+
+        MRUK.Instance.SceneLoadedEvent.AddListener(OnSceneLoaded);
+        MRUK.Instance.RoomCreatedEvent.AddListener(OnRoomCreated);
+        MRUK.Instance.RoomUpdatedEvent.AddListener(OnRoomUpdated);
+        MRUK.Instance.RoomRemovedEvent.AddListener(OnRoomRemoved);
+        _mrukEventsRegistered = true;
+        Debug.Log("[MozartSpatialBridge] Registered MRUK event listeners.");
+    }
+
+    private void UnregisterMrukEvents()
+    {
+        if (!_mrukEventsRegistered || MRUK.Instance == null)
+        {
+            _mrukEventsRegistered = false;
+            return;
+        }
+
+        MRUK.Instance.SceneLoadedEvent.RemoveListener(OnSceneLoaded);
+        MRUK.Instance.RoomCreatedEvent.RemoveListener(OnRoomCreated);
+        MRUK.Instance.RoomUpdatedEvent.RemoveListener(OnRoomUpdated);
+        MRUK.Instance.RoomRemovedEvent.RemoveListener(OnRoomRemoved);
+        _mrukEventsRegistered = false;
+    }
+
+    private void StartAlignmentRetryLoop()
+    {
+        if (_alignmentRetryCoroutine == null)
+        {
+            _alignmentRetryCoroutine = StartCoroutine(AlignmentRetryLoop());
+        }
+    }
+
+    private void StopAlignmentRetryLoop()
+    {
+        if (_alignmentRetryCoroutine != null)
+        {
+            StopCoroutine(_alignmentRetryCoroutine);
+            _alignmentRetryCoroutine = null;
+        }
+    }
+
+    private IEnumerator AlignmentRetryLoop()
+    {
+        const float retryIntervalSeconds = 1f;
+        while (enabled)
+        {
+            TryRegisterMrukEvents();
+
+            if (TryAlignOriginToCurrentRoom())
+            {
+                Transform currentParent = roomReferenceRoot != null ? roomReferenceRoot.parent : null;
+                bool parentLooksValid = currentParent != null &&
+                                        currentParent != transform &&
+                                        currentParent.name != "RoomReferenceRoot";
+                if (parentLooksValid)
+                {
+                    Debug.Log($"[MozartSpatialBridge] Room reference root attached to '{currentParent.name}'. Stopping retry loop.");
+                    _alignmentRetryCoroutine = null;
+                    yield break;
+                }
+            }
+
+            yield return new WaitForSeconds(retryIntervalSeconds);
+        }
+
+        _alignmentRetryCoroutine = null;
     }
 
     private void LogSpatialState(string phase)
