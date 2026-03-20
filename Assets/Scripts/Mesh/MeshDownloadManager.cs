@@ -812,6 +812,15 @@ public class MeshDownloadManager : Singleton<MeshDownloadManager>
             }
 
             Matrix4x4 relativeMatrix = meshTransform.worldToLocalMatrix * boxTransform.localToWorldMatrix;
+            if (flipObjXAxisForUnity)
+            {
+                // Runtime OBJ import mirrors the original mesh on X to match Unity view space.
+                // The cutter service operates on the original OBJ basis, so convert the OBB
+                // transform back into that basis before decomposing it to center/rotation/size.
+                Matrix4x4 objBasisFlip = Matrix4x4.Scale(new Vector3(-1f, 1f, 1f));
+                relativeMatrix = objBasisFlip * relativeMatrix * objBasisFlip;
+            }
+
             DecomposeBoxRelativeTransform(relativeMatrix, out Vector3 centerLocal, out Quaternion rotationLocal, out Vector3 size);
 
             boxesArray.Add(new JObject

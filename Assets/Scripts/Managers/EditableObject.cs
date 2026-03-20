@@ -109,6 +109,15 @@ public class EditableObject : MonoBehaviour
         }
     }
 
+    public void SetRestrictManipulationToEditMode(bool restrict)
+    {
+        restrictManipulationToEditMode = restrict;
+        if (_editModeManager != null)
+        {
+            ApplyCurrentEditMode();
+        }
+    }
+
     private void ApplyCurrentEditMode()
     {
         if (_editModeManager == null)

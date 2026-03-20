@@ -199,6 +199,7 @@ public class EditModeManager : Singleton<EditModeManager>
             editable = target.AddComponent<EditableObject>();
         }
 
+        editable.SetRestrictManipulationToEditMode(true);
         editable.ApplyEditMode(IsAnyEditMode);
         return editable;
     }

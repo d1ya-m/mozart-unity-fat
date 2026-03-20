@@ -249,11 +249,15 @@ public class GameManager : Singleton<GameManager>
         switch (actionObject.ObjectType.Id)
         {
             case "Mat":
-                newActionObject = Instantiate(MATPrefab, position, rotation, Origin).GetComponent<GrabbableMat>();
+                newActionObject = Instantiate(MATPrefab, Origin).GetComponent<GrabbableMat>();
+                newActionObject.transform.localPosition = position;
+                newActionObject.transform.localRotation = rotation;
                 newActionObject.Initialize(actionObject);
                 break;
             case "MatGrid":
-                newActionObject = Instantiate(MatGridPrefab, position, rotation, Origin).GetComponent<GrabbableMatGrid>();
+                newActionObject = Instantiate(MatGridPrefab, Origin).GetComponent<GrabbableMatGrid>();
+                newActionObject.transform.localPosition = position;
+                newActionObject.transform.localRotation = rotation;
                 newActionObject.Initialize(actionObject);
                 break;
             default:

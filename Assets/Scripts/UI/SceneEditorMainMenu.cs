@@ -3,19 +3,25 @@ using Arcor2.ClientSdk.ClientServices.Enums;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class SceneEditorMainMenu : MonoBehaviour
 {
     public CommunicationManager CommunicationManager;
     public GameManager GameManager;
+    public SpatialAnchorOriginManager SpatialAnchorOriginManager;
     public string DefaultMeshIdForBinding;
-    public TMP_Text CloseSceneSubLabel, SaveSceneSubLabel, EditModeSubLabel, MatEditModeSubLabel, CutMeshSubLabel, MeshAlignmentSubLabel;
+    public TMP_Text CloseSceneSubLabel, SaveSceneSubLabel, EditModeSubLabel, MatEditModeSubLabel, CutMeshSubLabel, MeshAlignmentSubLabel, OriginAnchorSubLabel;
+
+    private bool _isCollisionMeshRebuildInProgress;
+    private Toggle _collisionEditToggle;
 
     private void Start()
     {
         RefreshEditModeLabel();
         SubscribeGameManager();
         RefreshMeshAlignmentLabel();
+        RefreshOriginAnchorLabel();
     }
 
     private void OnEnable()
@@ -32,6 +38,8 @@ public class SceneEditorMainMenu : MonoBehaviour
         {
             GameManager.SceneMeshAlignmentModeChanged += OnSceneMeshAlignmentModeChanged;
         }
+
+        SubscribeSpatialAnchorManager();
     }
 
     private void OnDisable()
@@ -46,6 +54,11 @@ public class SceneEditorMainMenu : MonoBehaviour
         {
             GameManager.SceneMeshBindingMissing -= OnBindingMissing;
             GameManager.SceneMeshAlignmentModeChanged -= OnSceneMeshAlignmentModeChanged;
+        }
+
+        if (SpatialAnchorOriginManager != null)
+        {
+            SpatialAnchorOriginManager.OriginAnchorEditModeChanged -= OnOriginAnchorEditModeChanged;
         }
     }
 
@@ -81,6 +94,16 @@ public class SceneEditorMainMenu : MonoBehaviour
 
     public void ToggleEditMode()
     {
+        if (_isCollisionMeshRebuildInProgress)
+        {
+            return;
+        }
+
+        if (SpatialAnchorOriginManager != null && SpatialAnchorOriginManager.IsOriginAnchorEditMode)
+        {
+            SpatialAnchorOriginManager.SetOriginAnchorEditMode(false);
+        }
+
         if (GameManager != null && GameManager.IsSceneMeshAlignmentMode)
         {
             GameManager.SetSceneMeshAlignmentMode(false);
@@ -92,6 +115,16 @@ public class SceneEditorMainMenu : MonoBehaviour
 
     public void SetEditMode(bool enabled)
     {
+        if (_isCollisionMeshRebuildInProgress)
+        {
+            return;
+        }
+
+        if (enabled && SpatialAnchorOriginManager != null && SpatialAnchorOriginManager.IsOriginAnchorEditMode)
+        {
+            SpatialAnchorOriginManager.SetOriginAnchorEditMode(false);
+        }
+
         if (enabled && GameManager != null && GameManager.IsSceneMeshAlignmentMode)
         {
             GameManager.SetSceneMeshAlignmentMode(false);
@@ -103,6 +136,11 @@ public class SceneEditorMainMenu : MonoBehaviour
 
     public void ToggleMatEditMode()
     {
+        if (SpatialAnchorOriginManager != null && SpatialAnchorOriginManager.IsOriginAnchorEditMode)
+        {
+            SpatialAnchorOriginManager.SetOriginAnchorEditMode(false);
+        }
+
         if (GameManager != null && GameManager.IsSceneMeshAlignmentMode)
         {
             GameManager.SetSceneMeshAlignmentMode(false);
@@ -114,6 +152,11 @@ public class SceneEditorMainMenu : MonoBehaviour
 
     public void SetMatEditMode(bool enabled)
     {
+        if (enabled && SpatialAnchorOriginManager != null && SpatialAnchorOriginManager.IsOriginAnchorEditMode)
+        {
+            SpatialAnchorOriginManager.SetOriginAnchorEditMode(false);
+        }
+
         if (enabled && GameManager != null && GameManager.IsSceneMeshAlignmentMode)
         {
             GameManager.SetSceneMeshAlignmentMode(false);
@@ -128,6 +171,11 @@ public class SceneEditorMainMenu : MonoBehaviour
         if (GameManager == null)
         {
             return;
+        }
+
+        if (SpatialAnchorOriginManager != null && SpatialAnchorOriginManager.IsOriginAnchorEditMode)
+        {
+            SpatialAnchorOriginManager.SetOriginAnchorEditMode(false);
         }
 
         if (!GameManager.IsSceneMeshAlignmentMode && EditModeManager.Instance.IsAnyEditMode)
@@ -164,6 +212,11 @@ public class SceneEditorMainMenu : MonoBehaviour
             return;
         }
 
+        if (enabled && SpatialAnchorOriginManager != null && SpatialAnchorOriginManager.IsOriginAnchorEditMode)
+        {
+            SpatialAnchorOriginManager.SetOriginAnchorEditMode(false);
+        }
+
         if (enabled && EditModeManager.Instance.IsAnyEditMode)
         {
             EditModeManager.Instance.SetEditMode(false);
@@ -189,6 +242,122 @@ public class SceneEditorMainMenu : MonoBehaviour
         }
 
         RefreshMeshAlignmentLabel();
+    }
+
+    public void ToggleOriginAnchorEditMode()
+    {
+        if (SpatialAnchorOriginManager == null)
+        {
+            return;
+        }
+
+        bool enabling = !SpatialAnchorOriginManager.IsOriginAnchorEditMode;
+        if (enabling)
+        {
+            if (GameManager != null && GameManager.IsSceneMeshAlignmentMode)
+            {
+                GameManager.SetSceneMeshAlignmentMode(false);
+            }
+
+            if (EditModeManager.Instance != null && EditModeManager.Instance.IsAnyEditMode)
+            {
+                EditModeManager.Instance.SetEditMode(false);
+                EditModeManager.Instance.SetMatEditMode(false);
+                RefreshEditModeLabel();
+            }
+        }
+
+        SpatialAnchorOriginManager.ToggleOriginAnchorEditMode();
+        RefreshOriginAnchorLabel();
+    }
+
+    public void SetOriginAnchorEditMode(bool enabled)
+    {
+        if (SpatialAnchorOriginManager == null)
+        {
+            return;
+        }
+
+        if (enabled)
+        {
+            if (GameManager != null && GameManager.IsSceneMeshAlignmentMode)
+            {
+                GameManager.SetSceneMeshAlignmentMode(false);
+            }
+
+            if (EditModeManager.Instance != null && EditModeManager.Instance.IsAnyEditMode)
+            {
+                EditModeManager.Instance.SetEditMode(false);
+                EditModeManager.Instance.SetMatEditMode(false);
+                RefreshEditModeLabel();
+            }
+        }
+
+        SpatialAnchorOriginManager.SetOriginAnchorEditMode(enabled);
+        RefreshOriginAnchorLabel();
+    }
+
+    public async void SaveOriginAnchor()
+    {
+        if (SpatialAnchorOriginManager == null)
+        {
+            return;
+        }
+
+        if (OriginAnchorSubLabel != null)
+        {
+            OriginAnchorSubLabel.text = "Origin anchor: saving...";
+        }
+
+        bool saved = await SpatialAnchorOriginManager.SaveOriginAnchorAsync(replaceExistingAnchor: true);
+        if (OriginAnchorSubLabel != null)
+        {
+            OriginAnchorSubLabel.text = saved ? "Origin anchor: saved" : "Origin anchor: save failed";
+        }
+
+        RefreshOriginAnchorLabel();
+    }
+
+    public async void ReloadOriginAnchor()
+    {
+        if (SpatialAnchorOriginManager == null)
+        {
+            return;
+        }
+
+        if (OriginAnchorSubLabel != null)
+        {
+            OriginAnchorSubLabel.text = "Origin anchor: loading...";
+        }
+
+        bool loaded = await SpatialAnchorOriginManager.ReloadOriginAnchorAsync(forceReload: true);
+        if (OriginAnchorSubLabel != null)
+        {
+            OriginAnchorSubLabel.text = loaded ? "Origin anchor: loaded" : "Origin anchor: load failed";
+        }
+
+        RefreshOriginAnchorLabel();
+    }
+
+    public async void ClearOriginAnchor()
+    {
+        if (SpatialAnchorOriginManager == null)
+        {
+            return;
+        }
+
+        if (OriginAnchorSubLabel != null)
+        {
+            OriginAnchorSubLabel.text = "Origin anchor: clearing...";
+        }
+
+        bool cleared = await SpatialAnchorOriginManager.ClearSavedAnchorAsync();
+        if (OriginAnchorSubLabel != null)
+        {
+            OriginAnchorSubLabel.text = cleared ? "Origin anchor: cleared" : "Origin anchor: clear failed";
+        }
+
+        RefreshOriginAnchorLabel();
     }
 
     public async void CutBackgroundMeshUsingSingleCollisionObject()
@@ -245,6 +414,22 @@ public class SceneEditorMainMenu : MonoBehaviour
         GameManager.SceneMeshAlignmentModeChanged += OnSceneMeshAlignmentModeChanged;
     }
 
+    private void SubscribeSpatialAnchorManager()
+    {
+        if (SpatialAnchorOriginManager == null)
+        {
+            SpatialAnchorOriginManager = FindFirstObjectByType<SpatialAnchorOriginManager>(FindObjectsInactive.Include);
+        }
+
+        if (SpatialAnchorOriginManager == null)
+        {
+            return;
+        }
+
+        SpatialAnchorOriginManager.OriginAnchorEditModeChanged -= OnOriginAnchorEditModeChanged;
+        SpatialAnchorOriginManager.OriginAnchorEditModeChanged += OnOriginAnchorEditModeChanged;
+    }
+
     private void RefreshEditModeLabel()
     {
         if (EditModeSubLabel == null)
@@ -254,20 +439,19 @@ public class SceneEditorMainMenu : MonoBehaviour
 
         bool collisionEditEnabled = EditModeManager.Instance != null && EditModeManager.Instance.IsEditMode;
         bool matEditEnabled = EditModeManager.Instance != null && EditModeManager.Instance.IsMatEditMode;
+        string collisionStatus = _isCollisionMeshRebuildInProgress
+            ? "Collision edit: rebuilding..."
+            : $"Collision edit: {(collisionEditEnabled ? "ON" : "OFF")}";
+        string matStatus = $"MAT edit: {(matEditEnabled ? "ON" : "OFF")}";
 
         if (MatEditModeSubLabel != null)
         {
-            EditModeSubLabel.text = collisionEditEnabled
-                ? "Collision edit: ON"
-                : "Collision edit: OFF";
-            MatEditModeSubLabel.text = matEditEnabled
-                ? "MAT edit: ON"
-                : "MAT edit: OFF";
+            EditModeSubLabel.text = collisionStatus;
+            MatEditModeSubLabel.text = matStatus;
             return;
         }
 
-        EditModeSubLabel.text =
-            $"Collision edit: {(collisionEditEnabled ? "ON" : "OFF")}\nMAT edit: {(matEditEnabled ? "ON" : "OFF")}";
+        EditModeSubLabel.text = $"{collisionStatus}\n{matStatus}";
     }
 
     private void RefreshMeshAlignmentLabel()
@@ -282,13 +466,37 @@ public class SceneEditorMainMenu : MonoBehaviour
             : "Mesh align: OFF";
     }
 
+    private void RefreshOriginAnchorLabel()
+    {
+        if (OriginAnchorSubLabel == null)
+        {
+            return;
+        }
+
+        if (SpatialAnchorOriginManager == null)
+        {
+            OriginAnchorSubLabel.text = "Origin anchor: manager missing";
+            return;
+        }
+
+        if (SpatialAnchorOriginManager.IsOriginAnchorEditMode)
+        {
+            OriginAnchorSubLabel.text = "Origin anchor: EDIT";
+            return;
+        }
+
+        OriginAnchorSubLabel.text = SpatialAnchorOriginManager.HasSavedAnchor
+            ? "Origin anchor: saved"
+            : "Origin anchor: missing";
+    }
+
     private void OnEditModeChanged(bool _)
     {
         RefreshEditModeLabel();
 
         if (!EditModeManager.Instance.IsEditMode)
         {
-            RebuildBackgroundMeshFromAllCollisionBoxesAsync();
+            _ = RebuildBackgroundMeshFromAllCollisionBoxesAsync();
         }
     }
 
@@ -300,6 +508,11 @@ public class SceneEditorMainMenu : MonoBehaviour
     private void OnSceneMeshAlignmentModeChanged(bool _)
     {
         RefreshMeshAlignmentLabel();
+    }
+
+    private void OnOriginAnchorEditModeChanged(bool _)
+    {
+        RefreshOriginAnchorLabel();
     }
 
     public async void BindDefaultMeshToCurrentScene()
@@ -343,16 +556,53 @@ public class SceneEditorMainMenu : MonoBehaviour
             return;
         }
 
-        if (CutMeshSubLabel != null)
+        if (_isCollisionMeshRebuildInProgress)
         {
-            CutMeshSubLabel.text = "Rebuilding mesh...";
+            return;
         }
 
-        bool success = await GameManager.RebuildCurrentSceneMeshFromCollisionBoxesAsync(GameManager.GetActiveCollisionBoxTransforms());
-        if (CutMeshSubLabel != null)
+        _isCollisionMeshRebuildInProgress = true;
+        SetCollisionEditButtonInteractable(false);
+        RefreshEditModeLabel();
+
+        try
         {
-            CutMeshSubLabel.text = success ? "Mesh rebuild done" : "Mesh rebuild failed";
+            if (CutMeshSubLabel != null)
+            {
+                CutMeshSubLabel.text = "Rebuilding mesh...";
+            }
+
+            bool success = await GameManager.RebuildCurrentSceneMeshFromCollisionBoxesAsync(GameManager.GetActiveCollisionBoxTransforms());
+            if (CutMeshSubLabel != null)
+            {
+                CutMeshSubLabel.text = success ? "Mesh rebuild done" : "Mesh rebuild failed";
+            }
         }
+        finally
+        {
+            _isCollisionMeshRebuildInProgress = false;
+            SetCollisionEditButtonInteractable(true);
+            RefreshEditModeLabel();
+        }
+    }
+
+    private void SetCollisionEditButtonInteractable(bool interactable)
+    {
+        Toggle collisionToggle = GetCollisionEditToggle();
+        if (collisionToggle != null)
+        {
+            collisionToggle.interactable = interactable;
+        }
+    }
+
+    private Toggle GetCollisionEditToggle()
+    {
+        if (_collisionEditToggle == null && EditModeSubLabel != null)
+        {
+            _collisionEditToggle = EditModeSubLabel.GetComponentInParent<Toggle>(true);
+        }
+
+        return _collisionEditToggle;
     }
 
     private void OnBindingMissing(string sceneId, List<MeshDownloadManager.AvailableMeshInfo> availableMeshes)

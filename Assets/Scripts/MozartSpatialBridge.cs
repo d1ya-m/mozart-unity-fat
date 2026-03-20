@@ -16,6 +16,7 @@ public class MozartSpatialBridge : MonoBehaviour
     [SerializeField] private bool useFloorAnchorAsSpatialReference = true;
     [SerializeField] private bool flattenRoomReferenceToWorldUp = true;
     [SerializeField] private bool captureInitialOriginOffsetOnStart = true;
+    [SerializeField] private bool lockAlignmentAfterFirstSuccessfulAttach = true;
 
     private Vector3 _initialOriginLocalPosition = Vector3.zero;
     private Quaternion _initialOriginLocalRotation = Quaternion.identity;
@@ -23,6 +24,7 @@ public class MozartSpatialBridge : MonoBehaviour
     private bool _initialOriginOffsetCaptured;
     private bool _mrukEventsRegistered;
     private Coroutine _alignmentRetryCoroutine;
+    private bool _alignmentLocked;
 
     private void OnEnable()
     {
@@ -63,7 +65,6 @@ public class MozartSpatialBridge : MonoBehaviour
 
     private void OnRoomUpdated(MRUKRoom room)
     {
-        TryAlignOriginToCurrentRoom();
         LogSpatialState($"room_updated:{room?.name ?? "null"}");
     }
 
@@ -141,6 +142,19 @@ public class MozartSpatialBridge : MonoBehaviour
             return false;
         }
 
+        var spatialAnchorOriginManager = FindFirstObjectByType<SpatialAnchorOriginManager>();
+        if (spatialAnchorOriginManager != null &&
+            spatialAnchorOriginManager.isActiveAndEnabled &&
+            spatialAnchorOriginManager.UsesSpatialAnchorForOrigin)
+        {
+            return false;
+        }
+
+        if (_alignmentLocked && lockAlignmentAfterFirstSuccessfulAttach)
+        {
+            return true;
+        }
+
         CaptureInitialOriginOffsetIfNeeded();
         EnsureHierarchyRoots();
 
@@ -167,7 +181,22 @@ public class MozartSpatialBridge : MonoBehaviour
         contentOrigin.localScale = _initialOriginLocalScale;
         string currentParentName = roomReferenceRoot.parent != null ? roomReferenceRoot.parent.name : "<root>";
         Debug.Log($"[MozartSpatialBridge] Aligned room reference root. Parent: {previousParentName} -> {currentParentName}");
+
+        if (lockAlignmentAfterFirstSuccessfulAttach)
+        {
+            _alignmentLocked = true;
+            Debug.Log("[MozartSpatialBridge] Alignment locked after first successful attach.");
+        }
+
         return true;
+    }
+
+    public bool ForceRealignToRoom()
+    {
+        _alignmentLocked = false;
+        Debug.Log("[MozartSpatialBridge] Force realign requested.");
+        StartAlignmentRetryLoop();
+        return TryAlignOriginToCurrentRoom();
     }
 
     private bool TryGetCurrentRoomReference(out Transform referenceParent, out Vector3 referencePosition, out Quaternion referenceRotation)
@@ -320,6 +349,13 @@ public class MozartSpatialBridge : MonoBehaviour
         while (enabled)
         {
             TryRegisterMrukEvents();
+
+            if (_alignmentLocked && lockAlignmentAfterFirstSuccessfulAttach)
+            {
+                Debug.Log("[MozartSpatialBridge] Alignment already locked. Stopping retry loop.");
+                _alignmentRetryCoroutine = null;
+                yield break;
+            }
 
             if (TryAlignOriginToCurrentRoom())
             {
