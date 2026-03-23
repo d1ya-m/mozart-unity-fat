@@ -496,7 +496,7 @@ public class SceneEditorMainMenu : MonoBehaviour
 
         if (!EditModeManager.Instance.IsEditMode)
         {
-            _ = RebuildBackgroundMeshFromAllCollisionBoxesAsync();
+            RebuildBackgroundMeshFromAllCollisionBoxesAsync();
         }
     }
 

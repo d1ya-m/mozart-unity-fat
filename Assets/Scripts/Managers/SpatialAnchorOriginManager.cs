@@ -35,6 +35,7 @@ public class SpatialAnchorOriginManager : MonoBehaviour
     private OVRSpatialAnchor _boundAnchor;
     private bool _isBusy;
     private bool _isOriginAnchorEditMode;
+    private bool _isOriginDrivenBySpatialAnchor;
     private GameObject _originMarker;
     private Material _originMarkerMaterial;
     private bool _originMoveGripActive;
@@ -44,7 +45,7 @@ public class SpatialAnchorOriginManager : MonoBehaviour
     private Quaternion _originRotateGripStartControllerRotation = Quaternion.identity;
     private Quaternion _originRotateGripStartOriginRotation = Quaternion.identity;
 
-    public bool UsesSpatialAnchorForOrigin => true;
+    public bool UsesSpatialAnchorForOrigin => _isOriginDrivenBySpatialAnchor && !_isOriginAnchorEditMode;
     public bool HasSavedAnchor => TryGetSavedAnchorUuid(out _);
     public Guid CurrentAnchorUuid => _boundAnchor != null && _boundAnchor.Created ? _boundAnchor.Uuid : Guid.Empty;
     public bool IsOriginAnchorEditMode => _isOriginAnchorEditMode;
@@ -245,6 +246,7 @@ public class SpatialAnchorOriginManager : MonoBehaviour
 
             SaveAnchorUuid(anchor.Uuid);
             _boundAnchor = anchor;
+            _isOriginDrivenBySpatialAnchor = true;
             EnsureSceneMeshHierarchy();
             SetOriginAnchorEditMode(false);
             Debug.Log($"[SpatialAnchorOriginManager] Created and saved spatial anchor {anchor.Uuid}.");
@@ -336,6 +338,7 @@ public class SpatialAnchorOriginManager : MonoBehaviour
 
             unboundAnchor.BindTo(runtimeAnchor);
             _boundAnchor = runtimeAnchor;
+            _isOriginDrivenBySpatialAnchor = true;
             EnsureSceneMeshHierarchy();
             UpdateOriginMarkerVisibility();
             Debug.Log($"[SpatialAnchorOriginManager] Loaded and bound saved spatial anchor {savedUuid}.");
@@ -355,6 +358,7 @@ public class SpatialAnchorOriginManager : MonoBehaviour
         {
             Destroy(_boundAnchor);
             _boundAnchor = null;
+            _isOriginDrivenBySpatialAnchor = false;
             await Task.Yield();
         }
 
@@ -364,6 +368,7 @@ public class SpatialAnchorOriginManager : MonoBehaviour
             if (existingAnchor != null)
             {
                 Destroy(existingAnchor);
+                _isOriginDrivenBySpatialAnchor = false;
                 await Task.Yield();
             }
         }
@@ -373,6 +378,7 @@ public class SpatialAnchorOriginManager : MonoBehaviour
     {
         ResolveReferences();
         _boundAnchor = null;
+        _isOriginDrivenBySpatialAnchor = false;
 
         if (origin == null)
         {

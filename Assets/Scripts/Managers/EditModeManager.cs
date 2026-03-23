@@ -38,6 +38,7 @@ public class EditModeManager : Singleton<EditModeManager>
 
     private void Awake()
     {
+        EnsureCollisionDeleteWidgetExists();
         RegisterExistingEditableObjects();
         SetEditMode(startInEditMode);
     }
@@ -547,17 +548,41 @@ public class EditModeManager : Singleton<EditModeManager>
 
     private Vector3 TransformControllerLocalToWorld(Vector3 localPosition)
     {
-        Transform trackingSpace = GameManager.Instance != null && GameManager.Instance.Origin != null
-            ? GameManager.Instance.Origin
-            : (Camera.main != null ? Camera.main.transform : transform);
+        Transform trackingSpace = FindTrackingSpaceTransform();
         return trackingSpace.TransformPoint(localPosition);
     }
 
     private Quaternion TransformControllerLocalToWorld(Quaternion localRotation)
     {
-        Transform trackingSpace = GameManager.Instance != null && GameManager.Instance.Origin != null
-            ? GameManager.Instance.Origin
-            : (Camera.main != null ? Camera.main.transform : transform);
+        Transform trackingSpace = FindTrackingSpaceTransform();
         return trackingSpace.rotation * localRotation;
+    }
+
+    private void EnsureCollisionDeleteWidgetExists()
+    {
+        if (FindFirstObjectByType<CollisionBoxDeleteWidget>(FindObjectsInactive.Include) != null)
+        {
+            return;
+        }
+
+        var widgetObject = new GameObject("CollisionBoxDeleteWidget");
+        widgetObject.transform.SetParent(transform, false);
+        widgetObject.AddComponent<CollisionBoxDeleteWidget>();
+    }
+
+    private Transform FindTrackingSpaceTransform()
+    {
+        var cameraRig = FindFirstObjectByType<OVRCameraRig>();
+        if (cameraRig != null && cameraRig.trackingSpace != null)
+        {
+            return cameraRig.trackingSpace;
+        }
+
+        if (Camera.main != null && Camera.main.transform.parent != null)
+        {
+            return Camera.main.transform.parent;
+        }
+
+        return Camera.main != null ? Camera.main.transform : transform;
     }
 }

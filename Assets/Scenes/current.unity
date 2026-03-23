@@ -9533,7 +9533,7 @@ MonoBehaviour:
   CloseSceneSubLabel: {fileID: 128587141}
   SaveSceneSubLabel: {fileID: 637542210}
   EditModeSubLabel: {fileID: 1604080695}
-  MatEditModeSubLabel: {fileID: 1604080695}
+  MatEditModeSubLabel: {fileID: 0}
   CutMeshSubLabel: {fileID: 1267620043}
   MeshAlignmentSubLabel: {fileID: 651871712}
   OriginAnchorSubLabel: {fileID: 332612969}

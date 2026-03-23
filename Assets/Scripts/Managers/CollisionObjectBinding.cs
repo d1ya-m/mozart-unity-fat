@@ -79,6 +79,25 @@ public class CollisionObjectBinding : MonoBehaviour
         }
     }
 
+    public async Task<bool> RemoveAsync(bool force = true)
+    {
+        if (ActionObjectManager == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            await ActionObjectManager.RemoveAsync(force);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"Failed to remove collision object '{ActionObjectId}': {ex}");
+            return false;
+        }
+    }
+
     private void CaptureSavedState(Transform origin)
     {
         if (origin == null)
