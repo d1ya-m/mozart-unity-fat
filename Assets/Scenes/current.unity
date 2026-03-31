@@ -12953,7 +12953,7 @@ GameObject:
   - component: {fileID: 586870466}
   - component: {fileID: 586870467}
   - component: {fileID: 586870468}
-  m_Layer: 8
+  m_Layer: 0
   m_Name: Debug
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -15279,7 +15279,7 @@ MonoBehaviour:
   sceneMeshMoveSpeed: 0.5
   sceneMeshVerticalSpeed: 0.5
   sceneMeshRotateSpeedDegPerSec: 90
-  sceneMeshAlignmentLayer: 8
+  sceneMeshAlignmentLayer: 10
   sceneMeshDefaultLayer: 10
   sceneMeshGripMoveSensitivity: 1
   sceneMeshGripRotateSensitivity: 1

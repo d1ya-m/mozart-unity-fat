@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 2675730766243258994}
   - component: {fileID: 1888471732416354161}
   - component: {fileID: 5677710225789697031}
-  m_Layer: 8
+  m_Layer: 0
   m_Name: ISDK_RayGrabInteraction
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -90,7 +90,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 368105569689705939, guid: 9f1da829cd9710b45b4be3527523779d, type: 3}
       propertyPath: m_Layer
-      value: 8
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 734388057563389319, guid: 9f1da829cd9710b45b4be3527523779d, type: 3}
       propertyPath: m_Name
@@ -98,7 +98,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 734388057563389319, guid: 9f1da829cd9710b45b4be3527523779d, type: 3}
       propertyPath: m_Layer
-      value: 8
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 1505609041410632064, guid: 9f1da829cd9710b45b4be3527523779d, type: 3}
       propertyPath: m_LocalPosition.x
@@ -142,31 +142,31 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1674759880495955085, guid: 9f1da829cd9710b45b4be3527523779d, type: 3}
       propertyPath: m_Layer
-      value: 8
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 2384627390146936567, guid: 9f1da829cd9710b45b4be3527523779d, type: 3}
       propertyPath: m_Layer
-      value: 8
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 2712691697049520674, guid: 9f1da829cd9710b45b4be3527523779d, type: 3}
       propertyPath: m_Layer
-      value: 8
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 5907361808695035147, guid: 9f1da829cd9710b45b4be3527523779d, type: 3}
       propertyPath: m_Layer
-      value: 8
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 7950993980361856343, guid: 9f1da829cd9710b45b4be3527523779d, type: 3}
       propertyPath: m_Layer
-      value: 8
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8550155865076748169, guid: 9f1da829cd9710b45b4be3527523779d, type: 3}
       propertyPath: m_Layer
-      value: 8
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8558708512693641989, guid: 9f1da829cd9710b45b4be3527523779d, type: 3}
       propertyPath: m_Layer
-      value: 8
+      value: 0
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

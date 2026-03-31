@@ -24,7 +24,7 @@ public class GameManager : Singleton<GameManager>
     [SerializeField] private float sceneMeshMoveSpeed = 0.5f;
     [SerializeField] private float sceneMeshVerticalSpeed = 0.5f;
     [SerializeField] private float sceneMeshRotateSpeedDegPerSec = 90f;
-    [SerializeField] private int sceneMeshAlignmentLayer = 8;
+    [SerializeField] private int sceneMeshAlignmentLayer = 10;
     [SerializeField] private int sceneMeshDefaultLayer = 10;
     [SerializeField] private float sceneMeshGripMoveSensitivity = 1.0f;
     [SerializeField] private float sceneMeshGripRotateSensitivity = 1.0f;

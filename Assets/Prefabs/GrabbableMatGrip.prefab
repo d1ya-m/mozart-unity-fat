@@ -93,7 +93,7 @@ GameObject:
   - component: {fileID: 1826266188286623508}
   - component: {fileID: 5965499944622092016}
   - component: {fileID: 7745050845267010206}
-  m_Layer: 8
+  m_Layer: 0
   m_Name: GrabbableMatGrip
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -212,7 +212,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 6659649008982216269}
-  m_Layer: 8
+  m_Layer: 0
   m_Name: Grid
   m_TagString: Untagged
   m_Icon: {fileID: 0}
