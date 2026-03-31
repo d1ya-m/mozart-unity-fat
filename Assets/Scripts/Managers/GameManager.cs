@@ -58,6 +58,8 @@ public class GameManager : Singleton<GameManager>
     private bool sceneMeshRotateGripActive;
     private Quaternion sceneMeshRotateGripStartControllerRotation = Quaternion.identity;
     private Quaternion sceneMeshRotateGripStartMeshRotation = Quaternion.identity;
+    private readonly Dictionary<Renderer, Material[]> sceneMeshOriginalMaterials = new Dictionary<Renderer, Material[]>();
+    private readonly Dictionary<Renderer, Material[]> sceneMeshPortalMaterials = new Dictionary<Renderer, Material[]>();
 
     public event Action<string, List<MeshDownloadManager.AvailableMeshInfo>> SceneMeshBindingMissing;
     public event Action<bool> SceneMeshAlignmentModeChanged;
@@ -852,8 +854,9 @@ public class GameManager : Singleton<GameManager>
         serverSceneMesh.transform.localPosition = serverSceneMeshLocalPosition;
         serverSceneMesh.transform.localRotation = serverSceneMeshLocalRotation;
         serverSceneMesh.transform.localScale = serverSceneMeshLocalScale;
-        SetLayerRecursively(serverSceneMesh, IsSceneMeshAlignmentMode ? sceneMeshAlignmentLayer : sceneMeshDefaultLayer);
         SetCollidersEnabledRecursively(serverSceneMesh, false);
+        CacheSceneMeshMaterials(serverSceneMesh);
+        ApplySceneMeshRenderMode();
     }
 
     public void ToggleSceneMeshAlignmentMode()
@@ -871,10 +874,140 @@ public class GameManager : Singleton<GameManager>
         IsSceneMeshAlignmentMode = enabled;
         if (serverSceneMesh != null)
         {
-            SetLayerRecursively(serverSceneMesh, enabled ? sceneMeshAlignmentLayer : sceneMeshDefaultLayer);
+            ApplySceneMeshRenderMode();
         }
 
         SceneMeshAlignmentModeChanged?.Invoke(IsSceneMeshAlignmentMode);
+    }
+
+    private void ApplySceneMeshRenderMode()
+    {
+        if (serverSceneMesh == null)
+        {
+            return;
+        }
+
+        bool alignmentMode = IsSceneMeshAlignmentMode;
+        SetLayerRecursively(serverSceneMesh, alignmentMode ? sceneMeshAlignmentLayer : sceneMeshDefaultLayer);
+
+        foreach (var entry in sceneMeshOriginalMaterials)
+        {
+            Renderer renderer = entry.Key;
+            if (renderer == null)
+            {
+                continue;
+            }
+
+            if (alignmentMode || !sceneMeshPortalMaterials.TryGetValue(renderer, out var portalMaterials) || portalMaterials == null)
+            {
+                renderer.sharedMaterials = entry.Value;
+            }
+            else
+            {
+                renderer.sharedMaterials = portalMaterials;
+            }
+        }
+    }
+
+    private void CacheSceneMeshMaterials(GameObject root)
+    {
+        ClearSceneMeshMaterialCache();
+        if (root == null)
+        {
+            return;
+        }
+
+        foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
+        {
+            if (renderer == null)
+            {
+                continue;
+            }
+
+            Material[] originalMaterials = renderer.sharedMaterials;
+            sceneMeshOriginalMaterials[renderer] = originalMaterials;
+            sceneMeshPortalMaterials[renderer] = CreatePortalMaterialSet(originalMaterials);
+        }
+    }
+
+    private void ClearSceneMeshMaterialCache()
+    {
+        foreach (var materialSet in sceneMeshPortalMaterials.Values)
+        {
+            if (materialSet == null)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < materialSet.Length; i++)
+            {
+                if (materialSet[i] != null)
+                {
+                    Destroy(materialSet[i]);
+                }
+            }
+        }
+
+        sceneMeshOriginalMaterials.Clear();
+        sceneMeshPortalMaterials.Clear();
+    }
+
+    private static Material[] CreatePortalMaterialSet(Material[] originalMaterials)
+    {
+        Shader portalShader = Shader.Find("Custom/PortalContentUnlit");
+        if (portalShader == null || originalMaterials == null)
+        {
+            return null;
+        }
+
+        Material[] portalMaterials = new Material[originalMaterials.Length];
+        for (int i = 0; i < originalMaterials.Length; i++)
+        {
+            Material source = originalMaterials[i];
+            if (source == null)
+            {
+                continue;
+            }
+
+            var portalMaterial = new Material(portalShader);
+            CopyPortalMaterialProperties(source, portalMaterial);
+            portalMaterials[i] = portalMaterial;
+        }
+
+        return portalMaterials;
+    }
+
+    private static void CopyPortalMaterialProperties(Material source, Material destination)
+    {
+        Texture sourceTexture = null;
+        if (source.HasProperty("_BaseMap"))
+        {
+            sourceTexture = source.GetTexture("_BaseMap");
+        }
+        else if (source.HasProperty("_MainTex"))
+        {
+            sourceTexture = source.GetTexture("_MainTex");
+        }
+
+        if (sourceTexture != null && destination.HasProperty("_BaseMap"))
+        {
+            destination.SetTexture("_BaseMap", sourceTexture);
+        }
+
+        Color sourceColor = Color.white;
+        if (source.HasProperty("_BaseColor"))
+        {
+            sourceColor = source.GetColor("_BaseColor");
+        }
+        else if (source.HasProperty("_Color"))
+        {
+            sourceColor = source.GetColor("_Color");
+        }
+
+        if (destination.HasProperty("_BaseColor"))
+        {
+            destination.SetColor("_BaseColor", sourceColor);
+        }
     }
 
     private void ApplySceneMeshAlignmentInput()

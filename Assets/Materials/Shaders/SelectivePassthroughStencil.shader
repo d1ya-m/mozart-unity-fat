@@ -1,4 +1,6 @@
-Shader "BlackWhale/DestructibleMeshPassthrough"
+/// Based on Oculus/SelectivePassthrough with portal stencil clipping for URP/XR use.
+/// Requires premultiplied alpha passthrough mode to remain enabled on device.
+Shader "Custom/SelectivePassthroughStencil"
 {
     Properties
     {
@@ -7,13 +9,12 @@ Shader "BlackWhale/DestructibleMeshPassthrough"
         _InvertedAlpha("Inverted Alpha", float) = 1
 
         [Header(DepthTest)]
-        [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest("ZTest", Float) = 4 //"LessEqual"
-        [Enum(UnityEngine.Rendering.BlendOp)] _BlendOpColor("Blend Color", Float) = 2 //"ReverseSubtract"
-        [Enum(UnityEngine.Rendering.BlendOp)] _BlendOpAlpha("Blend Alpha", Float) = 3 //"Min"
+        [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest("ZTest", Float) = 4
     }
+
     SubShader
     {
-        Tags { "RenderType"="Transparent" "Queue" = "Transparent"}
+        Tags { "RenderType"="Transparent" "Queue"="Transparent" }
         LOD 100
 
         Stencil
@@ -27,12 +28,10 @@ Shader "BlackWhale/DestructibleMeshPassthrough"
         {
             ZWrite Off
             ZTest[_ZTest]
-            BlendOp[_BlendOpColor], [_BlendOpAlpha]
-            Blend Zero One, One One
+            BlendOp Add
+            Blend Zero SrcAlpha
 
             CGPROGRAM
-// Upgrade NOTE: excluded shader from DX11; has structs without semantics (struct v2f members center)
-//#pragma exclude_renderers d3d11
             #pragma vertex vert
             #pragma fragment frag
 
@@ -65,15 +64,15 @@ Shader "BlackWhale/DestructibleMeshPassthrough"
                 UNITY_INITIALIZE_OUTPUT(v2f, o);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
                 o.vertex = UnityObjectToClipPos(v.vertex + v.normal * _Inflation);
-                float4 origin = mul(unity_ObjectToWorld, float4(0.0, 0.0, 0.0, 1.0));
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
                 return o;
             }
 
-            fixed4 frag(v2f i) : SV_Target {
+            fixed4 frag(v2f i) : SV_Target
+            {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
                 fixed4 col = tex2D(_MainTex, i.uv);
-              float alpha = lerp(col.r, 1 - col.r, _InvertedAlpha);
+                float alpha = lerp(col.r, 1 - col.r, _InvertedAlpha);
                 return float4(0, 0, 0, alpha);
             }
             ENDCG

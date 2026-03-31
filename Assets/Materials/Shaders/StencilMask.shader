@@ -15,8 +15,8 @@ Shader "Custom/StencilMask"
             Tags { "LightMode"="UniversalForward" }
 
             ColorMask 0
-            Blend Zero One
-            ZWrite Off
+            ZWrite On
+            ZTest LEqual
 
             Stencil
             {
