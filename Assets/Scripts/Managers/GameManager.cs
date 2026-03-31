@@ -242,12 +242,14 @@ public class GameManager : Singleton<GameManager>
                 newActionObject.transform.localPosition = position;
                 newActionObject.transform.localRotation = rotation;
                 newActionObject.Initialize(actionObject);
+                EnsureAlwaysVisibleContentRenderer(newActionObject.gameObject);
                 break;
             case "MatGrid":
                 newActionObject = Instantiate(MatGridPrefab, Origin).GetComponent<GrabbableMatGrid>();
                 newActionObject.transform.localPosition = position;
                 newActionObject.transform.localRotation = rotation;
                 newActionObject.Initialize(actionObject);
+                EnsureAlwaysVisibleContentRenderer(newActionObject.gameObject);
                 break;
             default:
                 
@@ -458,6 +460,10 @@ public class GameManager : Singleton<GameManager>
                 break;
         }
         var spawnedObject = Instantiate(prefab, position, rotation, Origin);
+        if (type == ObjectType.MAT || type == ObjectType.MatGrid)
+        {
+            EnsureAlwaysVisibleContentRenderer(spawnedObject);
+        }
         EditModeManager.Instance?.RegisterEditable(spawnedObject);
         return spawnedObject;
     }
@@ -1008,6 +1014,22 @@ public class GameManager : Singleton<GameManager>
         {
             destination.SetColor("_BaseColor", sourceColor);
         }
+    }
+
+    private static void EnsureAlwaysVisibleContentRenderer(GameObject root)
+    {
+        if (root == null)
+        {
+            return;
+        }
+
+        var overlayRenderer = root.GetComponent<AlwaysVisibleContentRenderer>();
+        if (overlayRenderer == null)
+        {
+            overlayRenderer = root.AddComponent<AlwaysVisibleContentRenderer>();
+        }
+
+        overlayRenderer.Refresh();
     }
 
     private void ApplySceneMeshAlignmentInput()
