@@ -28,8 +28,8 @@ TagManager:
   - background
   - ground
   - content
-  - 
-  - 
+  - portalMask
+  - portalContent
   - 
   - 
   - 

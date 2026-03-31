@@ -3386,7 +3386,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 186001607}
-  m_Layer: 8
+  m_Layer: 0
   m_Name: SceneMeshOrigin
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -10053,11 +10053,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 713890223910586000, guid: 22f714964836a5c48b2be889b8d05f98, type: 3}
       propertyPath: m_AnchoredPosition.x
-      value: 616.5
+      value: 110.5
       objectReference: {fileID: 0}
     - target: {fileID: 713890223910586000, guid: 22f714964836a5c48b2be889b8d05f98, type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: -553.00037
+      value: -713.00037
       objectReference: {fileID: 0}
     - target: {fileID: 713890223910586000, guid: 22f714964836a5c48b2be889b8d05f98, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -14206,7 +14206,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2037080, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       propertyPath: m_CullingMask.m_Bits
-      value: 471
+      value: 2007
       objectReference: {fileID: 0}
     - target: {fileID: 11400000, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       propertyPath: _trackingOriginType
@@ -15272,7 +15272,7 @@ MonoBehaviour:
   TablePrefab: {fileID: 6945671345231042150, guid: 9901f535031c72b4cbb7da8ab01e15c1, type: 3}
   MatGridPrefab: {fileID: 6945671345231042150, guid: a69e2206575e24d43857540efc4829fc, type: 3}
   ConveyorPrefab: {fileID: 6945671345231042150, guid: 93635a709df199a4f912d684d6d321a5, type: 3}
-  CollisionBoxPrefab: {fileID: 6945671345231042150, guid: 8b1180882cad8624c8a46dc6038d9707, type: 3}
+  CollisionBoxPrefab: {fileID: 8473629184501123456, guid: 1c2e4b5f6a7d8c9e0f11223344556677, type: 3}
   CollisionBoxLayer: -1
   Origin: {fileID: 1539966880}
   SceneMeshOrigin: {fileID: 186001607}
@@ -15280,7 +15280,7 @@ MonoBehaviour:
   sceneMeshVerticalSpeed: 0.5
   sceneMeshRotateSpeedDegPerSec: 90
   sceneMeshAlignmentLayer: 8
-  sceneMeshDefaultLayer: 7
+  sceneMeshDefaultLayer: 10
   sceneMeshGripMoveSensitivity: 1
   sceneMeshGripRotateSensitivity: 1
   sceneMeshAlignSlowMultiplier: 0.25
@@ -16191,6 +16191,7 @@ MonoBehaviour:
   flattenRoomReferenceToWorldUp: 1
   captureInitialOriginOffsetOnStart: 1
   lockAlignmentAfterFirstSuccessfulAttach: 1
+  verboseLogging: 0
 --- !u!114 &790070969
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -16211,6 +16212,7 @@ MonoBehaviour:
   loadRetryIntervalSeconds: 1
   originMarkerScale: {x: 0.12, y: 0.12, z: 0.12}
   originMarkerColor: {r: 0.1, g: 0.9, b: 0.9, a: 0.85}
+  originMarkerLayer: 8
   originMoveSpeed: 0.5
   originVerticalSpeed: 0.5
   originRotateSpeedDegPerSec: 90
@@ -19253,7 +19255,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 713890223910586000, guid: 22f714964836a5c48b2be889b8d05f98, type: 3}
       propertyPath: m_AnchoredPosition.x
-      value: 363.5
+      value: 616.5
       objectReference: {fileID: 0}
     - target: {fileID: 713890223910586000, guid: 22f714964836a5c48b2be889b8d05f98, type: 3}
       propertyPath: m_AnchoredPosition.y
@@ -30595,7 +30597,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1539966880}
   - component: {fileID: 1539966881}
-  m_Layer: 8
+  m_Layer: 0
   m_Name: origin
   m_TagString: Untagged
   m_Icon: {fileID: 0}

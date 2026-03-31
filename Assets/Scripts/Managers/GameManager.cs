@@ -25,7 +25,7 @@ public class GameManager : Singleton<GameManager>
     [SerializeField] private float sceneMeshVerticalSpeed = 0.5f;
     [SerializeField] private float sceneMeshRotateSpeedDegPerSec = 90f;
     [SerializeField] private int sceneMeshAlignmentLayer = 8;
-    [SerializeField] private int sceneMeshDefaultLayer = 7;
+    [SerializeField] private int sceneMeshDefaultLayer = 10;
     [SerializeField] private float sceneMeshGripMoveSensitivity = 1.0f;
     [SerializeField] private float sceneMeshGripRotateSensitivity = 1.0f;
     [SerializeField] private float sceneMeshAlignSlowMultiplier = 0.25f;
@@ -161,14 +161,11 @@ public class GameManager : Singleton<GameManager>
 
     private void SceneOpened()
     {
-        Debug.LogError("scene opened");    
-
         CleanupSceneObjects();
         SceneManager = CommunicationManager.Arcor2Session.Scenes[CommunicationManager.Arcor2Session.NavigationId];
         _ = LoadCurrentSceneMeshAsync();
         foreach (var ao in SceneManager.ActionObjects)
         {
-            Debug.LogError($"Object {ao.Data.Meta.Name}");
             SpawnActionObject(ao);
             
             // Load mesh if available
@@ -177,13 +174,6 @@ public class GameManager : Singleton<GameManager>
                 MeshImporter.Instance.LoadModel(ao.ObjectType.Data.Meta.ObjectModel.Mesh, ao.Data.Meta.Id);
             }
             
-            //ao.Data.Meta.
-            //SpawnObject(StringToObjectType(ao.Data.Meta.Name), TransformConvertor.ROSToUnity(DataHelper.PositionToVector3(ao.Data.Meta.Pose.Position)), TransformConvertor.ROSToUnity(DataHelper.OrientationToQuaternion(ao.Data.Meta.Pose.Orientation)));
-            foreach (var param in ao.Data.Meta.Parameters.AsEnumerable())                
-            {
-
-                Debug.LogError(param);
-            }
         }
         ((INotifyCollectionChanged) SceneManager.ActionObjects).CollectionChanged += ActionObjectsChanged;
     }
@@ -242,9 +232,6 @@ public class GameManager : Singleton<GameManager>
         ActionObject newActionObject = null;
         Vector3 position = TransformConvertor.ROSToUnity(DataHelper.PositionToVector3(actionObject.Data.Meta.Pose.Position));
         Quaternion rotation = TransformConvertor.ROSToUnity(DataHelper.OrientationToQuaternion(actionObject.Data.Meta.Pose.Orientation));
-        Debug.LogError($"Should spawn: {actionObject.Data.Meta.Name}");
-        
-
 
         switch (actionObject.ObjectType.Id)
         {
@@ -339,7 +326,6 @@ public class GameManager : Singleton<GameManager>
     private void OnMeshImported(object sender, ImportedMeshEventArgs args)
     {
         string aoId = args.Name; // This is the action object ID passed from MeshImporter.LoadModel()
-        Debug.LogError($"Mesh imported for action object: {aoId}");
         
         // Store the mesh for later use
         importedMeshes[aoId] = args.RootGameObject;
@@ -353,8 +339,7 @@ public class GameManager : Singleton<GameManager>
     {
         // Find action object in scene by its ID
         // This could be done by searching through spawned objects or storing a dictionary of spawned action objects
-        Debug.LogError($"Applying mesh to action object {aoId}");
-        
+
         // Position the mesh at the origin (you might want to adjust this based on action object position)
         if (meshObject != null)
         {

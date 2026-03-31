@@ -8,7 +8,7 @@ public class LayerApplier : MonoBehaviour
         MRUKRoom mrukComponent = FindFirstObjectByType<MRUKRoom>();
         GameObject mrukObject = mrukComponent.gameObject;
 
-        ApplyLayer(mrukObject, "ground");
+        ApplyLayer(mrukObject, "portalContent");
     }
 
     private void ApplyLayer(GameObject obj, string layerName)

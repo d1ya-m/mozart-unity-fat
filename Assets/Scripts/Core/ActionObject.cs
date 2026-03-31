@@ -7,7 +7,6 @@ public abstract class ActionObject : MonoBehaviour
     private void Start()
     {
         var obj = GetComponent<PointableElement>();
-        Debug.LogError(obj);
         if (obj != null)
         {
             obj.WhenPointerEventRaised += Obj_WhenPointerEventRaised;

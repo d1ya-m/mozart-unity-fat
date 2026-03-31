@@ -3,9 +3,15 @@ using System.Threading.Tasks;
 using Meta.XR.MRUtilityKit;
 using UnityEngine;
 using UnityEngine.Android;
+using Unity.Profiling;
 
 public class MozartSpatialBridge : MonoBehaviour
 {
+    private static readonly ProfilerMarker TryAlignOriginMarker = new ProfilerMarker("MozartSpatialBridge.TryAlignOriginToCurrentRoom");
+    private static readonly ProfilerMarker OnRoomUpdatedMarker = new ProfilerMarker("MozartSpatialBridge.OnRoomUpdated");
+    private static readonly ProfilerMarker LogSpatialStateMarker = new ProfilerMarker("MozartSpatialBridge.LogSpatialState");
+    private static readonly ProfilerMarker EnsureDeviceSceneLoadedMarker = new ProfilerMarker("MozartSpatialBridge.EnsureDeviceSceneLoadedAsync");
+
     [Header("Content Roots")]
     [SerializeField] private Transform contentOrigin;
     [SerializeField] private Transform sceneMeshOrigin;
@@ -17,6 +23,9 @@ public class MozartSpatialBridge : MonoBehaviour
     [SerializeField] private bool flattenRoomReferenceToWorldUp = true;
     [SerializeField] private bool captureInitialOriginOffsetOnStart = true;
     [SerializeField] private bool lockAlignmentAfterFirstSuccessfulAttach = true;
+
+    [Header("Debug")]
+    [SerializeField] private bool verboseLogging = false;
 
     private Vector3 _initialOriginLocalPosition = Vector3.zero;
     private Quaternion _initialOriginLocalRotation = Quaternion.identity;
@@ -44,7 +53,10 @@ public class MozartSpatialBridge : MonoBehaviour
         EnsureHierarchyRoots();
         TryAlignOriginToCurrentRoom();
         LogSpatialState("start");
-        StartCoroutine(LogDelayedStates());
+        if (verboseLogging)
+        {
+            StartCoroutine(LogDelayedStates());
+        }
         await EnsureDeviceSceneLoadedAsync();
         TryRegisterMrukEvents();
         TryAlignOriginToCurrentRoom();
@@ -65,7 +77,10 @@ public class MozartSpatialBridge : MonoBehaviour
 
     private void OnRoomUpdated(MRUKRoom room)
     {
-        LogSpatialState($"room_updated:{room?.name ?? "null"}");
+        using (OnRoomUpdatedMarker.Auto())
+        {
+            LogSpatialState($"room_updated:{room?.name ?? "null"}");
+        }
     }
 
     private void OnRoomRemoved(MRUKRoom room)
@@ -89,31 +104,34 @@ public class MozartSpatialBridge : MonoBehaviour
 
     private async Task EnsureDeviceSceneLoadedAsync()
     {
+        using (EnsureDeviceSceneLoadedMarker.Auto())
+        {
 #if UNITY_ANDROID && !UNITY_EDITOR
-        await WaitForScenePermissionAsync();
+            await WaitForScenePermissionAsync();
 
-        if (MRUK.Instance == null)
-        {
-            Debug.LogError("[MozartSpatialBridge] MRUK instance is null.");
-            return;
-        }
+            if (MRUK.Instance == null)
+            {
+                LogError("[MozartSpatialBridge] MRUK instance is null.");
+                return;
+            }
 
-        if (FindFirstObjectByType<MRUKRoom>() != null)
-        {
-            return;
-        }
+            if (FindFirstObjectByType<MRUKRoom>() != null)
+            {
+                return;
+            }
 
-        var sceneModel = MRUK.Instance.SceneSettings.EnableHighFidelityScene
-            ? MRUK.SceneModel.V2FallbackV1
-            : MRUK.SceneModel.V1;
+            var sceneModel = MRUK.Instance.SceneSettings.EnableHighFidelityScene
+                ? MRUK.SceneModel.V2FallbackV1
+                : MRUK.SceneModel.V1;
 
-        var result = await MRUK.Instance.LoadSceneFromDevice(
-            requestSceneCaptureIfNoDataFound: true,
-            removeMissingRooms: true,
-            sceneModel: sceneModel);
+            var result = await MRUK.Instance.LoadSceneFromDevice(
+                requestSceneCaptureIfNoDataFound: true,
+                removeMissingRooms: true,
+                sceneModel: sceneModel);
 
-        LogSpatialState($"manual_load_result:{result}");
+            LogSpatialState($"manual_load_result:{result}");
 #endif
+        }
     }
 
     private static async Task WaitForScenePermissionAsync()
@@ -137,64 +155,67 @@ public class MozartSpatialBridge : MonoBehaviour
 
     private bool TryAlignOriginToCurrentRoom()
     {
-        if (!alignOriginToScannedRoom || contentOrigin == null)
+        using (TryAlignOriginMarker.Auto())
         {
-            return false;
-        }
+            if (!alignOriginToScannedRoom || contentOrigin == null)
+            {
+                return false;
+            }
 
-        var spatialAnchorOriginManager = FindFirstObjectByType<SpatialAnchorOriginManager>();
-        if (spatialAnchorOriginManager != null &&
-            spatialAnchorOriginManager.isActiveAndEnabled &&
-            spatialAnchorOriginManager.UsesSpatialAnchorForOrigin)
-        {
-            return false;
-        }
+            var spatialAnchorOriginManager = FindFirstObjectByType<SpatialAnchorOriginManager>();
+            if (spatialAnchorOriginManager != null &&
+                spatialAnchorOriginManager.isActiveAndEnabled &&
+                spatialAnchorOriginManager.UsesSpatialAnchorForOrigin)
+            {
+                return false;
+            }
 
-        if (_alignmentLocked && lockAlignmentAfterFirstSuccessfulAttach)
-        {
+            if (_alignmentLocked && lockAlignmentAfterFirstSuccessfulAttach)
+            {
+                return true;
+            }
+
+            CaptureInitialOriginOffsetIfNeeded();
+            EnsureHierarchyRoots();
+
+            if (!TryGetCurrentRoomReference(out Transform referenceParent, out Vector3 referencePosition, out Quaternion referenceRotation))
+            {
+                return false;
+            }
+
+            string previousParentName = roomReferenceRoot.parent != null ? roomReferenceRoot.parent.name : "<root>";
+            roomReferenceRoot.SetParent(null, false);
+            roomReferenceRoot.SetPositionAndRotation(referencePosition, referenceRotation);
+            if (referenceParent != null)
+            {
+                roomReferenceRoot.SetParent(referenceParent, true);
+            }
+
+            if (contentOrigin.parent != roomReferenceRoot)
+            {
+                contentOrigin.SetParent(roomReferenceRoot, false);
+            }
+
+            contentOrigin.localPosition = _initialOriginLocalPosition;
+            contentOrigin.localRotation = _initialOriginLocalRotation;
+            contentOrigin.localScale = _initialOriginLocalScale;
+            string currentParentName = roomReferenceRoot.parent != null ? roomReferenceRoot.parent.name : "<root>";
+            Log($"[MozartSpatialBridge] Aligned room reference root. Parent: {previousParentName} -> {currentParentName}");
+
+            if (lockAlignmentAfterFirstSuccessfulAttach)
+            {
+                _alignmentLocked = true;
+                Log("[MozartSpatialBridge] Alignment locked after first successful attach.");
+            }
+
             return true;
         }
-
-        CaptureInitialOriginOffsetIfNeeded();
-        EnsureHierarchyRoots();
-
-        if (!TryGetCurrentRoomReference(out Transform referenceParent, out Vector3 referencePosition, out Quaternion referenceRotation))
-        {
-            return false;
-        }
-
-        string previousParentName = roomReferenceRoot.parent != null ? roomReferenceRoot.parent.name : "<root>";
-        roomReferenceRoot.SetParent(null, false);
-        roomReferenceRoot.SetPositionAndRotation(referencePosition, referenceRotation);
-        if (referenceParent != null)
-        {
-            roomReferenceRoot.SetParent(referenceParent, true);
-        }
-
-        if (contentOrigin.parent != roomReferenceRoot)
-        {
-            contentOrigin.SetParent(roomReferenceRoot, false);
-        }
-
-        contentOrigin.localPosition = _initialOriginLocalPosition;
-        contentOrigin.localRotation = _initialOriginLocalRotation;
-        contentOrigin.localScale = _initialOriginLocalScale;
-        string currentParentName = roomReferenceRoot.parent != null ? roomReferenceRoot.parent.name : "<root>";
-        Debug.Log($"[MozartSpatialBridge] Aligned room reference root. Parent: {previousParentName} -> {currentParentName}");
-
-        if (lockAlignmentAfterFirstSuccessfulAttach)
-        {
-            _alignmentLocked = true;
-            Debug.Log("[MozartSpatialBridge] Alignment locked after first successful attach.");
-        }
-
-        return true;
     }
 
     public bool ForceRealignToRoom()
     {
         _alignmentLocked = false;
-        Debug.Log("[MozartSpatialBridge] Force realign requested.");
+        Log("[MozartSpatialBridge] Force realign requested.");
         StartAlignmentRetryLoop();
         return TryAlignOriginToCurrentRoom();
     }
@@ -308,7 +329,7 @@ public class MozartSpatialBridge : MonoBehaviour
         MRUK.Instance.RoomUpdatedEvent.AddListener(OnRoomUpdated);
         MRUK.Instance.RoomRemovedEvent.AddListener(OnRoomRemoved);
         _mrukEventsRegistered = true;
-        Debug.Log("[MozartSpatialBridge] Registered MRUK event listeners.");
+        Log("[MozartSpatialBridge] Registered MRUK event listeners.");
     }
 
     private void UnregisterMrukEvents()
@@ -352,7 +373,7 @@ public class MozartSpatialBridge : MonoBehaviour
 
             if (_alignmentLocked && lockAlignmentAfterFirstSuccessfulAttach)
             {
-                Debug.Log("[MozartSpatialBridge] Alignment already locked. Stopping retry loop.");
+                Log("[MozartSpatialBridge] Alignment already locked. Stopping retry loop.");
                 _alignmentRetryCoroutine = null;
                 yield break;
             }
@@ -365,7 +386,7 @@ public class MozartSpatialBridge : MonoBehaviour
                                         currentParent.name != "RoomReferenceRoot";
                 if (parentLooksValid)
                 {
-                    Debug.Log($"[MozartSpatialBridge] Room reference root attached to '{currentParent.name}'. Stopping retry loop.");
+                    Log($"[MozartSpatialBridge] Room reference root attached to '{currentParent.name}'. Stopping retry loop.");
                     _alignmentRetryCoroutine = null;
                     yield break;
                 }
@@ -379,26 +400,50 @@ public class MozartSpatialBridge : MonoBehaviour
 
     private void LogSpatialState(string phase)
     {
-        MRUKRoom[] rooms = FindObjectsByType<MRUKRoom>(FindObjectsSortMode.None);
-        MRUKRoom room = rooms.Length > 0 ? rooms[0] : null;
-        MRUKAnchor floor = room != null ? room.FloorAnchor : null;
-        Transform cameraTransform = Camera.main != null ? Camera.main.transform : null;
-        Transform trackingSpace = FindTrackingSpaceTransform();
+        if (!verboseLogging)
+        {
+            return;
+        }
 
-        string roomSummary = room == null
-            ? "room=null"
-            : $"room={room.name}, isLocal={room.IsLocal}, anchors={room.Anchors.Count}, walls={room.WallAnchors.Count}";
-        string floorSummary = floor == null
-            ? "floor=null"
-            : $"floor={FormatVector3(floor.GetAnchorCenter())}, rot={FormatVector3(floor.transform.eulerAngles)}";
+        using (LogSpatialStateMarker.Auto())
+        {
+            MRUKRoom[] rooms = FindObjectsByType<MRUKRoom>(FindObjectsSortMode.None);
+            MRUKRoom room = rooms.Length > 0 ? rooms[0] : null;
+            MRUKAnchor floor = room != null ? room.FloorAnchor : null;
+            Transform cameraTransform = Camera.main != null ? Camera.main.transform : null;
+            Transform trackingSpace = FindTrackingSpaceTransform();
 
-        Debug.Log(
-            $"[MozartSpatialBridge] phase={phase} " +
-            $"roomCount={rooms.Length} " +
-            $"{roomSummary} " +
-            $"{floorSummary} " +
-            $"camera={FormatTransform(cameraTransform)} " +
-            $"trackingSpace={FormatTransform(trackingSpace)}");
+            string roomSummary = room == null
+                ? "room=null"
+                : $"room={room.name}, isLocal={room.IsLocal}, anchors={room.Anchors.Count}, walls={room.WallAnchors.Count}";
+            string floorSummary = floor == null
+                ? "floor=null"
+                : $"floor={FormatVector3(floor.GetAnchorCenter())}, rot={FormatVector3(floor.transform.eulerAngles)}";
+
+            Debug.Log(
+                $"[MozartSpatialBridge] phase={phase} " +
+                $"roomCount={rooms.Length} " +
+                $"{roomSummary} " +
+                $"{floorSummary} " +
+                $"camera={FormatTransform(cameraTransform)} " +
+                $"trackingSpace={FormatTransform(trackingSpace)}");
+        }
+    }
+
+    private void Log(string message)
+    {
+        if (verboseLogging)
+        {
+            Debug.Log(message);
+        }
+    }
+
+    private void LogError(string message)
+    {
+        if (verboseLogging)
+        {
+            Debug.LogError(message);
+        }
     }
 
     private static Transform FindTrackingSpaceTransform()

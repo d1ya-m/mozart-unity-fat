@@ -11,6 +11,10 @@ Shader "Custom/StencilMask"
 
         Pass 
         {
+            Name "PortalMask"
+            Tags { "LightMode"="UniversalForward" }
+
+            ColorMask 0
             Blend Zero One
             ZWrite Off
 
