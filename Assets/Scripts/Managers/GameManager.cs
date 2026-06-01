@@ -776,7 +776,7 @@ public class GameManager : Singleton<GameManager>
             return false;
         }
 
-        var binding = await meshDownloadManager.BindSceneMeshAsync(sceneId, meshId);
+        var binding = await meshDownloadManager.BindSceneMeshWithDefaultFallbackAsync(sceneId, meshId);
         if (binding == null || !binding.Bound)
         {
             return false;

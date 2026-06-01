@@ -15,6 +15,8 @@ using UnityEngine.Rendering.Universal;
 /// </summary>
 public class MeshDownloadManager : Singleton<MeshDownloadManager>
 {
+    public const string DefaultSceneMeshId = "lab";
+
     [SerializeField] private string meshServerBaseUrl = "http://butcluster.ddns.net:8000";
     [SerializeField] private bool flipObjXAxisForUnity = true;
 
@@ -44,11 +46,9 @@ public class MeshDownloadManager : Singleton<MeshDownloadManager>
                 throw new Exception("Binding response is null.");
             }
 
-            if (!binding.Bound)
+            binding = await EnsureSceneBindingAsync(sceneId, binding, notifyWhenMissing: true);
+            if (binding == null)
             {
-                var availableMeshes = await GetAvailableMeshesAsync();
-                SceneBindingMissing?.Invoke(sceneId, availableMeshes);
-                MeshLoadFailed?.Invoke(sceneId, "Scene mesh binding missing");
                 return null;
             }
 
@@ -119,6 +119,18 @@ public class MeshDownloadManager : Singleton<MeshDownloadManager>
         return JsonConvert.DeserializeObject<SceneBindingInfo>(response.Text);
     }
 
+    public async Task<SceneBindingInfo> BindSceneMeshWithDefaultFallbackAsync(string sceneId, string meshId)
+    {
+        var binding = await BindSceneMeshAsync(sceneId, meshId);
+        if (binding != null && binding.Bound)
+        {
+            return binding;
+        }
+
+        Debug.LogWarning($"[MeshDownloadManager] Scene mesh bind failed for '{meshId}', falling back to '{DefaultSceneMeshId}'.");
+        return await BindSceneMeshAsync(sceneId, DefaultSceneMeshId);
+    }
+
     public async Task<GameObject> RebuildSceneMeshFromBoxesAsync(string sceneId, IReadOnlyList<Transform> boxTransforms, Transform meshTransform)
     {
         if (string.IsNullOrWhiteSpace(sceneId))
@@ -134,7 +146,8 @@ public class MeshDownloadManager : Singleton<MeshDownloadManager>
         }
 
         var binding = await GetSceneBindingAsync(sceneId);
-        if (binding == null || !binding.Bound)
+        binding = await EnsureSceneBindingAsync(sceneId, binding, notifyWhenMissing: false);
+        if (binding == null)
         {
             Debug.LogWarning($"[MeshDownloadManager] Scene '{sceneId}' has no mesh binding.");
             return null;
@@ -172,6 +185,30 @@ public class MeshDownloadManager : Singleton<MeshDownloadManager>
         }
 
         return JsonConvert.DeserializeObject<SceneBindingInfo>(response.Text);
+    }
+
+    private async Task<SceneBindingInfo> EnsureSceneBindingAsync(string sceneId, SceneBindingInfo binding, bool notifyWhenMissing)
+    {
+        if (binding != null && binding.Bound)
+        {
+            return binding;
+        }
+
+        Debug.LogWarning($"[MeshDownloadManager] Scene '{sceneId}' has no mesh binding, falling back to '{DefaultSceneMeshId}'.");
+        binding = await BindSceneMeshAsync(sceneId, DefaultSceneMeshId);
+        if (binding != null && binding.Bound)
+        {
+            return binding;
+        }
+
+        if (notifyWhenMissing)
+        {
+            var availableMeshes = await GetAvailableMeshesAsync();
+            SceneBindingMissing?.Invoke(sceneId, availableMeshes);
+            MeshLoadFailed?.Invoke(sceneId, "Scene mesh binding missing");
+        }
+
+        return null;
     }
 
     public bool TryGetCachedSceneTransform(string sceneId, out Vector3 relativePosition, out Quaternion relativeRotation)
