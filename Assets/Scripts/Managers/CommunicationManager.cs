@@ -55,7 +55,7 @@ namespace Arcor2.ClientSdk.ClientServices.Enums {
         {
             await Arcor2Session.ConnectAsync(ServerUri);
             await Arcor2Session.InitializeAsync();
-            await Arcor2Session.RegisterAndSubscribeAsync("Kapi2");
+            await Arcor2Session.RegisterAndSubscribeAsync("TEST");
             ConnectedToServer.Invoke();
         }
 
