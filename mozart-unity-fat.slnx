@@ -1,0 +1,6 @@
+﻿<Solution>
+  <Project Path="Assembly-CSharp.csproj" />
+  <Project Path="Assembly-CSharp-Editor.csproj" />
+  <Project Path="com.mozart.shared.Editor.csproj" />
+  <Project Path="com.mozart.shared.Runtime.csproj" />
+</Solution>

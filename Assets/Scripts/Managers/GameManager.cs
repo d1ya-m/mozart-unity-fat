@@ -1,4 +1,6 @@
-using System;
+
+ 
+ using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Linq;
@@ -19,6 +21,7 @@ public class GameManager : Singleton<GameManager>
     [Tooltip("Set -1 to keep prefab/object layer unchanged.")]
     public int CollisionBoxLayer = -1;
     public Transform Origin;
+    
     public Transform SceneMeshOrigin;
     [Header("Scene Mesh Alignment")]
     [SerializeField] private float sceneMeshMoveSpeed = 0.5f;
@@ -261,7 +264,9 @@ public class GameManager : Singleton<GameManager>
                     if (CollisionBoxPrefab != null)
                     {
                         collisionBox = Instantiate(CollisionBoxPrefab, Origin);
+                        collisionBox.AddComponent<PortalBoxBinder>();
                     }
+
                     else
                     {
                         collisionBox = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -977,6 +982,8 @@ public class GameManager : Singleton<GameManager>
 
             var portalMaterial = new Material(portalShader);
             CopyPortalMaterialProperties(source, portalMaterial);
+            portalMaterial.SetFloat("_DebugMode", 0f);   // ← ADD THIS LINE (1 = Occ)
+
             portalMaterials[i] = portalMaterial;
         }
 

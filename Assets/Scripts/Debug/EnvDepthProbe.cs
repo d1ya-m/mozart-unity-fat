@@ -10,8 +10,15 @@ public class EnvDepthProbe : MonoBehaviour
 
     void Start()
     {
-        mgr = FindObjectOfType<EnvironmentDepthManager>();
-        Log("Start");
+        Debug.Log("[EnvDepthProbe] Awake called");
+        mgr = Object.FindFirstObjectByType<EnvironmentDepthManager>();
+        Debug.Log($"[EnvDepthProbe] Manager found: {mgr != null}");
+        Invoke(nameof(DelayedLog), 3f);
+    }
+
+    void DelayedLog()
+    {
+        Log("Start-delayed");
     }
 
     void Update()
