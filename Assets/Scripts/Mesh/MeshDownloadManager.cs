@@ -695,8 +695,15 @@ public class MeshDownloadManager : Singleton<MeshDownloadManager>
         var vertexMap = new Dictionary<string, int>();
 
         string[] lines = objContent.Split('\n');
+        Debug.Log($"[MeshDownloadManager] Parsing OBJ: {lines.Length} lines total");
+        int lineIndex = 0;
         foreach (string rawLine in lines)
         {
+            if (++lineIndex % 100000 == 0)
+            {
+                Debug.Log($"[MeshDownloadManager] Parsed {lineIndex}/{lines.Length} lines...");
+            }
+
             string line = rawLine.Trim();
             if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#"))
             {
