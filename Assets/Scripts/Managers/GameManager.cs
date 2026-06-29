@@ -10,6 +10,8 @@ using Arcor2.ClientSdk.ClientServices.Managers;
 using Arcor2.ClientSdk.Communication.OpenApi.Models;
 using TMPro;
 using UnityEngine;
+using Mozart.Rendering;
+
 
 public class GameManager : Singleton<GameManager> 
 {

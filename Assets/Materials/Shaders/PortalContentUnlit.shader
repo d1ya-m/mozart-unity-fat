@@ -164,55 +164,5 @@ Shader "Custom/PortalContentUnlit"
             ENDHLSL
         }
 
-        // ===== Step 0A: Occlusion Prepass =====
-        Pass
-        {
-            Name "PortalOccPrepass"
-            Tags { "LightMode"="PortalOccPrepass" }
-
-            ZWrite Off
-            ZTest Always
-            Cull Back
-            Stencil { Comp Always }
-
-            HLSLPROGRAM
-            #pragma vertex vertOcc
-            #pragma fragment fragOcc
-            #pragma multi_compile_instancing
-            #pragma multi_compile _ HARD_OCCLUSION SOFT_OCCLUSION
-
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-            #include "Packages/com.meta.xr.sdk.core/Shaders/EnvironmentDepth/URP/EnvironmentOcclusionURP.hlsl"
-
-            CBUFFER_START(UnityPerMaterial)
-                float4 _BaseMap_ST;
-                float4 _BaseColor;
-                float _EnvDepthBias;
-            CBUFFER_END
-
-            struct AttributesOcc { float4 positionOS : POSITION; UNITY_VERTEX_INPUT_INSTANCE_ID };
-            struct VaryingsOcc   { float4 positionHCS : SV_POSITION; META_DEPTH_VERTEX_OUTPUT(1) UNITY_VERTEX_OUTPUT_STEREO };
-
-            VaryingsOcc vertOcc(AttributesOcc input)
-            {
-                VaryingsOcc o;
-                UNITY_SETUP_INSTANCE_ID(input);
-                UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
-                META_DEPTH_INITIALIZE_VERTEX_OUTPUT(o, input.positionOS);
-                o.positionHCS = TransformObjectToHClip(input.positionOS.xyz);
-                return o;
-            }
-
-            half4 fragOcc(VaryingsOcc input) : SV_Target
-            {
-                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
-                float occ   = META_DEPTH_GET_OCCLUSION_VALUE_WORLDPOS(input.posWorld, _EnvDepthBias);
-                float viewZ = input.positionHCS.w;
-                return half4(occ, viewZ, 1, 1);
-            }
-
-
-            ENDHLSL
-        }
     }
 }
