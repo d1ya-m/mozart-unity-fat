@@ -42,29 +42,33 @@ this existing stencil pipeline as the mask.**
 
 ## 2. Offline Segmentation (Python)
 
-File: `Assets/StreamingAssets/clusters/export_clusters.py`
+Two segmenters now exist; both emit the same output contract (`clusterN.obj` +
+`clusters.json`), so the runtime is unchanged either way.
 
-**Concept:** classic point-cloud object segmentation.
+**Original — `export_clusters.py` (plain RANSAC + DBSCAN):**
 1. Load `mesh-3hz-4.obj`, sample 100k points.
-2. **RANSAC** plane removal ×6 — strips the dominant planes (floor, walls,
-   ceiling), leaving only "object" points. (`distance_threshold=0.03`)
-3. **DBSCAN** clustering (`eps=0.15, min_points=20`) — groups the remaining
-   points into discrete objects.
-4. For each cluster with enough points: compute centroid, crop the original mesh
-   to the cluster bounding box, simplify via **QEM**
-   (`simplify_quadric_decimation(3000)`), and export `clusterN.obj`.
-5. Write all centroids to `centres.txt`.
+2. **RANSAC** plane removal ×6 (`distance_threshold=0.03`) — strips floor/walls/
+   ceiling.
+3. **DBSCAN** (`eps=0.15, min_points=20`) — groups remaining points by proximity.
+4. Per cluster: crop the mesh to the bounding box, **QEM** simplify
+   (`simplify_quadric_decimation(3000)`), export `clusterN.obj`.
+5. Write `clusters.json` manifest (`{count, indices[]}`) + `centres.txt` (debug).
+- **Known flaw:** clusters by *distance only*, so **objects that touch merge** into
+  one cluster (see §14).
 
-**Result:** 40 clusters found, **19 exported** (those with enough geometry).
-Output: `cluster0.obj … cluster26.obj` (sparse indices) + `centres.txt`.
+**Current — `export_clusters_normals.py` (normals-augmented DBSCAN, §14.7):**
+Same RANSAC strip and same crop→QEM→`clusterN.obj`/`clusters.json` backend, but
+DBSCAN runs on a **6-D position+normal feature** so the cluster boundary lands on
+the normal discontinuity where two objects touch — splitting them instead of
+merging. Zero new dependencies (DBSCAN on an Open3D KD-tree). First run: **33
+clusters** (vs ~14 from plain DBSCAN). See §14.7 for the full rationale.
 
-**Environment note:** open3d only supports Python 3.8–3.11. Use
-`py -3.11 export_clusters.py`. (`visualize_clusters.py` was also added to preview
-clusters in distinct colours before going to the lab.)
+**Environment note:** open3d supports Python 3.8–3.11. Use `py -3.11 <script>.py`.
+`visualize_clusters.py` previews clusters in distinct colours.
 
-> ⚠️ **`centres.txt` is no longer used by the runtime** (see §6, the coordinate
-> bug). It remains useful as a segmentation artifact / for debugging but the
-> Unity side now derives centres from the loaded meshes themselves.
+> ⚠️ **`centres.txt` is NOT read by the runtime** (see §6). The runtime reads
+> `clusters.json` for indices and derives positions from the loaded cluster
+> colliders/meshes. `centres.txt` is kept only as a debug artifact.
 
 ---
 
@@ -72,17 +76,38 @@ clusters in distinct colours before going to the lab.)
 
 | File | Purpose |
 |---|---|
-| `Assets/Scripts/Debug/ObjectPicker.cs` | **Main script.** Ray-pick → cluster match → portal mask. |
+| `Assets/Scripts/Debug/ObjectPicker.cs` | **Main script.** Ray-pick (layer-11 collider) → cluster → portal mask; Idle/Add/Remove multi-portal. |
 | `Assets/Scripts/Debug/HardcodedObjectMask.cs` | Milestone-1 sanity check: loads a single fixed `objectmask/object.obj` as a portal mask. Kept disabled in scene. |
-| `Assets/StreamingAssets/clusters/*` | `clusterN.obj`, `centres.txt`, `export_clusters.py`, `visualize_clusters.py`, source mesh `mesh-3hz-4.{obj,mtl,jpg}`. |
+| `Assets/Scripts/Debug/EnvDepthProbe.cs` | Diagnostic: logs Environment-Depth pipeline state (`IsSupported`/permission/`IsDepthAvailable`/`_EnvironmentDepthTexture`) and requests `USE_SCENE`. Added for the occlusion work (§13). |
+| `Assets/StreamingAssets/clusters/*` | `clusterN.obj`, `clusters.json` (manifest), `centres.txt`, `export_clusters.py`, `export_clusters_normals.py` (normals-augmented, §14.7), `visualize_clusters.py`, source mesh `mesh-3hz-4.{obj,mtl,jpg}`. |
 | `Assets/StreamingAssets/objectmask/object.obj` | Single-object mask for the hardcoded test. |
 
 ---
 
 ## 4. Changes to the ORIGINAL codebase (complete list)
 
-Only **two** original files were modified, plus one project setting. Nothing in
-the rendering / portal / occlusion code was touched.
+> **Updated 2026-06-29 from the actual branch diff** (`git diff
+> master...object-shaped-portals`). The original "only two files" claim is
+> obsolete — the occlusion work (§13) and its enabling settings touched several
+> more. Full verified list (excludes vendored `SimpleCollada`/`TriLib`/
+> `CompositionLayers` restored to fix compile errors):
+>
+> | File | Change | Why |
+> |---|---|---|
+> | `Assets/Scripts/Mesh/MeshDownloadManager.cs` | +7 log lines (§4.1) | Diagnose slow OBJ parse |
+> | `Assets/Materials/Shaders/PortalContentUnlit.shader` | occlusion vs opening depth (§13.4) | Cupboard-bug fix |
+> | `Assets/Settings/Mobile_RPAsset.asset` | `RequireDepthTexture 0→1`, `MSAA 2→4` | Populate `_CameraDepthTexture`; AA |
+> | `Assets/Plugins/Android/AndroidManifest.xml` | +`USE_SCENE` permission | Environment Depth |
+> | `Packages/manifest.json` | +`com.unity.xr.meta-openxr 2.5.0` | XR/OpenXR Meta support |
+> | `ProjectSettings/TagManager.asset` | +user layer `ClusterPick` (11) | Pick-only raycast layer |
+> | `ProjectSettings/ProjectSettings.asset` | `activeInputHandler 1→2`; +define symbols; `runInBackground 0→1` (§4.2) | Input spam fix; XR input; run unfocused |
+> | `ProjectSettings/QualitySettings.asset` | `pixelLightCount 2→1`, `antiAliasing 2→4` | Mobile-tier perf/quality |
+> | `ProjectSettings/OculusProjectConfig.asset` | `handTrackingSupport 0→1` | Enable hand tracking |
+> | `ProjectSettings/EditorBuildSettings.asset` | +ARFoundation simulation settings | Added with XR sim packages |
+> | `Assets/Scenes/current.unity` | Scene wiring of the new GameObjects/UI | Hook scripts/UI into the scene |
+>
+> Rationale for `MSAA`/`pixelLightCount`/`handTracking` is not separately
+> documented — confirm from personal notes if the report needs it.
 
 ### 4.1 `Assets/Scripts/Mesh/MeshDownloadManager.cs` (+7 lines)
 Added **progress logging** to `ParseObjContent` so we could diagnose the slow
@@ -104,63 +129,95 @@ thread and making the editor appear to hang during mesh parse. On Android this
 triggers an "unsupported" build dialog — click **Yes** (it does not affect
 OVRInput).
 
-### 4.3 NOT changed (important)
-- No change to portal shaders (`StencilMask`, `PortalContentUnlit`,
-  `SelectivePassthrough`).
-- No change to `GameManager`, `SpatialAnchorOriginManager`, occlusion, MRUK,
-  or the OVR camera rig.
-- **No dynamic occlusion is implemented in this feature** (that is a *separate*
-  branch, `dynamic-occlusion`, using Meta's Environment Depth API — explicitly
-  NOT part of object-shaped-portals).
+### 4.3 NOT changed (verified)
+- **`StencilMask` and `SelectivePassthrough` shaders** are unchanged — only
+  `PortalContentUnlit.shader` was modified (for occlusion, §13). The stencil
+  mechanism itself is untouched.
+- **`GameManager`, `SpatialAnchorOriginManager`, MRUK, the OVR camera rig** are not
+  modified by this feature. (`GameManager.CreatePortalMaterialSet` is *used* by the
+  occlusion reasoning but not edited.)
 
-> ⚠️ **OUTDATED as of 2026-06-25.** The two bullets above are no longer true.
-> Dynamic occlusion *has* since been added to this branch and **does** modify
-> `PortalContentUnlit.shader` (plus the URP `Mobile_RPAsset`). See **§13**. The
-> rest of §4 (segmentation, ObjectPicker, multi-portal UI) remains accurate.
+> Earlier drafts said "no dynamic occlusion / no shader change." That is obsolete:
+> occlusion **is** implemented here and **does** modify `PortalContentUnlit.shader`
+> + `Mobile_RPAsset` (see §4 table and §13).
 
 ---
 
 ## 5. ObjectPicker.cs — How It Works (current, final design)
 
-### Pipeline per frame
-1. **`GetPointerRay()`** — build a ray from the right controller.
-   - Uses `trackingSpace.TransformPoint(OVRInput.GetLocalControllerPosition(RTouch))`
-     and `trackingSpace.rotation * localRot`. Matches the project's own
-     convention (`SpatialAnchorOriginManager`, `GameManager`). Falls back to head
-     gaze if no tracking space.
-2. **`Physics.Raycast`** against the scene mesh collider.
-3. **`FindNearestCluster(hit.point)`** — nearest preloaded cluster (world space).
-4. **Laser colour** — green if nearest cluster ≤ `validClusterDistance` (1.0 m),
-   else red.
-5. **On right/left index trigger** — if valid, `ShowCluster(nearest)`.
+> **Updated 2026-06-29 to match the code.** The earlier nearest-centre design
+> (`FindNearestCluster`, `validClusterDistance`, `_clusterWorldCentres`,
+> `ShowCluster`, `clusterCount`) **no longer exists** — those symbols are absent
+> from `ObjectPicker.cs`. The final design picks by **per-cluster MeshCollider
+> raycast on a dedicated layer**. This section now describes the real code with
+> `file:line` references.
 
-### Cluster preloading (the key design)
-`PreloadClustersCoroutine` runs once when the scene mesh loads:
-- Loads all 19 `clusterN.obj` via `MeshDownloadManager.LoadMeshFromServer`
-  (unique key `cluster_preload_{id}`), one per frame to avoid a hitch.
-- Parents each under `ServerSceneMesh` at local identity, disables its collider,
-  records its **real rendered `renderer.bounds.center`** in `_clusterWorldCentres`,
-  then **hides** it (`SetActive(false)`).
-- Matching and showing both use these same preloaded objects, so the matched
-  position is *literally* the rendered position (see §6 for why this matters).
+### Pipeline per frame (`Update`, `ObjectPicker.cs:261-344`)
+1. **`GetPointerRay()`** (`:351-362`) — ray from the right controller.
+   `trackingSpace.TransformPoint(OVRInput.GetLocalControllerPosition(RTouch))` +
+   `trackingSpace.rotation * localRot`. Matches the project convention
+   (`SpatialAnchorOriginManager`, `GameManager`); head-gaze fallback if no tracking
+   space (`FindTrackingSpaceTransform` `:364-372`).
+2. **Layer-masked raycast** (`:291-292`) —
+   `Physics.Raycast(ray, out hit, rayLength, 1 << clusterPickLayer)`. The ray hits
+   **only** the cluster pick-colliders (layer 11), ignoring the room mesh / portals
+   / UI.
+3. **Collider → cluster** (`:294-296`) — `_colliderToCluster.TryGetValue(hit.collider,
+   out cid)`. The collider you hit **is** the object: exact per-shape containment,
+   no centre-distance threshold. `validAim = pickedCluster >= 0` (`:297`).
+4. **Laser** (`:301-304`) — shown **only in Add/Remove mode** (hidden in Idle);
+   green (`hitColor`) when on a cluster, red (`missColor`) otherwise.
+5. **On right/left index trigger** (`:330-343`) — in Add mode `AddPortal(cid)`, in
+   Remove mode `RemovePortal(cid)`; Idle ignores the trigger.
 
-### Showing a cluster (`ShowCluster`)
-- Hides the previously active cluster, reveals the new one.
-- `debugVisibleClusters == true` → bright orange `Unlit/Color`, `ZTest Always`,
-  `renderQueue 5000` (always visible, never occluded — debug aid).
-- `debugVisibleClusters == false` → applies `stencilMaskMaterial` and
-  `SetLayerRecursively(obj, portalMaskLayer=9)` → **the cluster becomes a portal**
-  via the existing stencil pipeline. This path is identical to how the working
-  `HardcodedObjectMask` applied its mask.
+### Cluster preloading (the key design — `PreloadClustersCoroutine` `:152-218`)
+Runs once when the scene mesh loads:
+- **Reads the manifest** `clusters/clusters.json` via `UnityWebRequest`
+  (`LoadManifest` `:222-237`) to know exactly which indices exist — no hardcoded
+  count.
+- For each index, loads `clusterN.obj` via `MeshDownloadManager.LoadMeshFromServer`
+  with a unique key `cluster_preload_{id}`, one per frame to avoid a hitch
+  (`:170-211`).
+- Parents each under `ServerSceneMesh` at local identity, **disables the loader's
+  own collider**, and adds a **dedicated child `ClusterPick_{id}` carrying a
+  `MeshCollider` (`convex = false`) permanently on `clusterPickLayer` (11)**
+  (`:188-201`). The pick collider's layer is independent of how the cluster
+  renders, so toggling a portal never moves it off the pick layer.
+- Registers `_colliderToCluster[mc] = id` and `_clusterObjects[id] = obj`
+  (`:201-202`), then keeps the GameObject **active with its renderer OFF**
+  (`:205-207`) — invisible yet raycastable.
 
-### Inspector fields
-- `stencilMaskMaterial` = `StencilMask.mat`, `portalMaskLayer` = 9.
-- `debugVisibleClusters` — toggle orange (debug) vs portal (real). **Off = portal.**
-- `validClusterDistance` = 1.0 — green/red threshold and pick acceptance radius.
-- `clusterCount` = 19.
+> Why this matters: matching is the collider on the rendered object, so
+> **match-space == render-space by construction** — there is no cached centre to go
+> stale (this is the Bug F fix, §6).
+
+### Showing / hiding a cluster as a portal (`AddPortal` `:460-494`, `RemovePortal` `:498-513`)
+- `AddPortal` turns the cluster's **renderer on** and sets its material:
+  - `debugVisibleClusters == true` → bright orange `Unlit/Color`, `_ZTest Always`,
+    `renderQueue 5000`, renderer on layer 0 (always-visible debug aid).
+  - `debugVisibleClusters == false` → `stencilMaskMaterial` + renderer on
+    `portalMaskLayer` (9) → **the cluster becomes a portal** via the existing
+    stencil pipeline (same path `HardcodedObjectMask` uses).
+  - Adds the id to `_activePortals`. The pick collider (layer 11, separate child)
+    is untouched, so the portal can still be picked for removal.
+- `RemovePortal` turns the renderer back off and removes the id from
+  `_activePortals`; the GameObject + pick collider stay active.
+
+### Inspector fields (`:9-47`)
+- `stencilMaskMaterial` = `StencilMask.mat`; `portalMaskLayer` = 9.
+- `clusterPickLayer` = 11 (the `ClusterPick` user layer).
+- `debugVisibleClusters` — orange (debug) vs portal (real). **Off = portal.**
+- `_addToggle` / `_removeToggle`, `addPortalSubLabel` / `removePortalSubLabel` —
+  ToolMenu mode toggles + their live ON/off sublabels (§10b).
+- `verboseLogging` — gates the `DIAG`/`PICK`/`Preload` logs.
 - `statusText`, `statusPanel`, `statusPanelFollowsView` — optional in-headset
   status (largely superseded by `adb logcat`).
-- Laser width is forced in code (`0.005`), colours `hitColor`/`missColor`.
+- Laser width forced in code (`0.005`), colours `hitColor`/`missColor`.
+
+> **Removed vs. earlier design:** `validClusterDistance`, `clusterCount`,
+> `FindNearestCluster`, `_clusterWorldCentres`, `ShowCluster`, and any runtime read
+> of `centres.txt` are **gone** — replaced by manifest-driven preload + collider
+> raycast.
 
 ---
 
@@ -223,9 +280,13 @@ symptom, the root-cause theory, and the measured result.
   `objBasisFlip` Scale(-1,1,1) matrix in `ParseObjContent`) ended up in **different
   coordinate spaces** in Unity — even Y sign differed. Matching used one space,
   rendering used another, so they disagreed.
-- **Fix (final design):** stop using `centres.txt`. **Preload the cluster meshes,
-  read each one's real `renderer.bounds.center`, and match against those.** Now
-  match-space == render-space *by construction* — they cannot disagree.
+- **Fix (final design):** stop using `centres.txt` entirely. **Give each preloaded
+  cluster its own `MeshCollider` (on layer 11) and pick by raycasting against those
+  colliders** (`ObjectPicker.cs:188-201, 291-296`). Because the collider lives on
+  the rendered object and moves with it, the hit is in render space automatically —
+  match-space == render-space *by construction*, so they cannot disagree.
+  (An interim version matched against each cluster's `renderer.bounds.center`; the
+  final code dropped centres for exact collider containment.)
 - **Result:** **the portal/orange now lands exactly where the laser points.** ✅
 
 ---
@@ -265,16 +326,17 @@ Key log tags added: `DIAG` (per-second state), `PICK` (trigger + match),
 2. ~~One active portal at a time~~ **RESOLVED (§10b):** multiple portals can now
    be active simultaneously, added/removed individually via the ToolMenu
    Add/Remove Portal toggle buttons.
-3. **Nearest-centre matching is coarse:** picking uses distance to a cluster's
-   bounds *centre*, not true containment. Adjacent or overlapping objects can be
-   mis-picked; `validClusterDistance` (1.0 m) is a blunt threshold.
-4. **Sparse cluster indices vs `clusterCount`:** export produced sparse indices
-   (…22,23 with gaps); `clusterCount=19` assumes a contiguous range. Preload skips
-   missing indices gracefully but the count should match the actual files.
-5. **All clusters preloaded up front:** 19 small meshes is fine, but a larger
+3. ~~Nearest-centre matching is coarse~~ **RESOLVED:** picking is now exact
+   per-shape containment via a per-cluster `MeshCollider` raycast (layer 11). There
+   is no `validClusterDistance` threshold anymore.
+4. ~~Sparse cluster indices vs `clusterCount`~~ **RESOLVED:** the runtime reads
+   `clusters.json` and loads exactly the listed indices — no hardcoded count.
+5. **All clusters preloaded up front:** ~19–33 small meshes is fine, but a larger
    scene with many/large clusters would increase load time and memory.
-6. **No dynamic occlusion:** portal content is not occluded by real-world depth.
-   (That's the separate `dynamic-occlusion` branch / Environment Depth API.)
+6. **Dynamic occlusion is partial, not absent:** it IS implemented on this branch
+   (§13) but works accurately only for very-near objects; mid-distance and
+   Add/Delete-mode alignment + edge flicker remain (§13.6). (Earlier text saying
+   "no dynamic occlusion" is obsolete.)
 7. **Link unusable for input:** all testing must be a built APK; no in-editor
    iteration for controller interactions.
 8. **Coordinate handling is implicit:** correctness relies on cluster meshes being
@@ -337,9 +399,8 @@ Three modes: **Idle, Add, Remove** (default Idle).
   - *Add + green laser:* trigger → that cluster becomes a portal (added to the
     active set, stays on alongside any others).
   - *Remove + green laser:* trigger → that portal disappears.
-- **Laser only appears in Add/Remove mode** (green = valid object within
-  `validClusterDistance`, red = not). Hidden in Idle so the aiming guide only
-  shows when actionable.
+- **Laser only appears in Add/Remove mode** (green = ray hits a cluster collider,
+  red = not). Hidden in Idle so the aiming guide only shows when actionable.
 - Multiple portals stay active at once (no more single-switching).
 
 ### Code (ObjectPicker.cs)
@@ -412,7 +473,8 @@ Oculus/XR auto-generated config, `dynamic-occlusion` work, `_Recovery/`.
 1. Decide orange-debug vs portal default (`debugVisibleClusters` off for the real
    feature).
 2. ✅ DONE — verbose logs gated behind the `verboseLogging` inspector flag.
-3. Confirm `clusterCount` matches the actual exported files.
+3. ✅ DONE — runtime reads `clusters.json` for the index list; no hardcoded
+   `clusterCount` to keep in sync.
 4. ✅ DONE — add/remove multi-portal UI implemented via ToolMenu Add/Delete Portal
    toggle buttons (see §10b). Remaining: confirm DeletePortal toggle is wired to
    `SetRemoveMode` (not `SetAddMode`).
@@ -601,3 +663,51 @@ Steps:
    + `centres.txt` (or manifest) output contract the runtime expects.
 4. Compare cluster counts / merge behaviour against the RANSAC baseline on the
    dense mesh before switching the runtime over.
+
+### 14.6 Checkpoint — restore commands
+
+A git tag `checkpoint-ransac-seg` was created at the working RANSAC+DBSCAN state
+(2026-06-25) before any SAM3D / segmentation changes. To restore to this point:
+
+```bash
+# Option A — discard ALL changes since the checkpoint and restore exactly:
+git reset --hard checkpoint-ransac-seg
+
+# Option B — safer, keep current work on a separate branch first:
+git checkout -b sam3d-attempt      # save current state here
+git checkout object-shaped-portals
+git reset --hard checkpoint-ransac-seg
+
+# Option C — just branch off the checkpoint without touching current branch:
+git checkout -b restore-point checkpoint-ransac-seg
+```
+
+> ⚠️ Option A is destructive — any uncommitted changes are lost permanently.
+> If you have uncommitted work at restore time, stash it first:
+> `git stash` before `git reset --hard`, then `git stash pop` after.
+
+### 14.7 Checkpoint — normals-augmented DBSCAN (2026-06-26)
+
+Marker commit `dc2de3e` ("checkpoint") sits on top of `237f2f1`
+("normal augmented ransac+dbscan improvement"), which added
+`export_clusters_normals.py` (RANSAC strip + DBSCAN on the 6-D
+position+normal feature) and the regenerated `clusterN.obj` / `clusters.json`.
+To return to this known-good state:
+
+```bash
+# Option A — discard ALL changes since the checkpoint and restore exactly:
+git reset --hard dc2de3e
+
+# Option B — safer, keep current work on a separate branch first:
+git checkout -b wip-after-normals   # save current state here
+git checkout object-shaped-portals
+git reset --hard dc2de3e
+
+# Option C — just branch off the checkpoint without touching current branch:
+git checkout -b restore-normals dc2de3e
+```
+
+> ⚠️ Option A is destructive — any uncommitted changes are lost permanently.
+> If you have uncommitted work at restore time, `git stash` first, then
+> `git stash pop` after. (Hashes are stable as long as history isn't rewritten;
+> `git log --oneline` will show them if they ever change.)
