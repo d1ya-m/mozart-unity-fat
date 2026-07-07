@@ -128,3 +128,8 @@ Assets/TriLib/
 Assets/TriLib.meta
 Assets/SimpleCollada/
 Assets/SimpleCollada.meta
+
+# Folder-meta stubs for the excluded Asset Store libs + local Oculus user settings
+Assets/TriLib.meta
+Assets/SimpleCollada.meta
+Assets/CompositionLayers/UserSettings/
