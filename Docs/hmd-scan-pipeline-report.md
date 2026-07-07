@@ -239,3 +239,32 @@ Scan Room stores + segments the HMD mesh (see logcat `[SCANFLOW] PATH B: ...`).
 
 See `IMPLEMENTATION_NOTES.md` for the coordinate convention, the mesh-source seam, and the
 per-phase commit history on branch `mruk-dynamic-portals`.
+
+---
+
+## 10. Dead code — the abandoned depth-reconstruction experiment (Path C)
+
+Before the MRUK approach, an earlier experiment tried to build the room mesh **from the
+Quest's raw environment-depth sensor**: capture per-keyframe depth PNGs + camera poses
+on-device, pull them to a PC, and reconstruct a mesh offline (unprojection + Poisson).
+This is **Path C**, and it was **abandoned** because the depth/pose reconstruction suffered
+persistent multi-frame alignment drift (the room came out several times too large; only
+floor/ceiling planes survived merging). The MRUK global mesh (Path A/B) replaced it entirely.
+
+The following files are the **dead remains of Path C**. They are kept in the repo (clearly
+labelled here and in `CLEANUP_LOG.md`) rather than deleted, but **nothing in the running app
+uses them** and they can be removed at any time:
+
+| File | What it was |
+|---|---|
+| `Assets/Scripts/Debug/KeyframeCaptureManager.cs` | On-device depth-PNG + pose capture (start/stop toggle, wrote `captures/<session>/frame_*.depth.png` + JSON). This is the source of the leftover **"N frames" label** on the Scan Room button. |
+| `Assets/Scripts/Debug/EnvDepthProbe.cs` | Depth-API diagnostic probe. |
+| `Assets/Materials/Shaders/EnvDepthCapture.shader` | Depth blit shader used only by the above. |
+| `KeyframeCapture` GameObject in `current.unity` | Inactive scene object hosting KeyframeCaptureManager. |
+
+> ⚠️ **Important distinction:** the current **Scan Room** button is **NOT** this experiment.
+> It is a single-press action (`ScanRoomFlow`) that grabs the MRUK mesh and stores ONE OBJ
+> (`mruk_global_mesh.obj`). It does **not** toggle on/off and does **not** write depth PNGs —
+> that behaviour belonged to the dead `KeyframeCaptureManager`. The offline Python
+> reconstruction scripts (`unproject_clean.py`, `reconstruct_clean.py`, etc.) from Path C were
+> already removed in an earlier cleanup; only the three files above remain.
