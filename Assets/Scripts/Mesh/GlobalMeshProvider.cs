@@ -1,0 +1,110 @@
+using System;
+using Meta.XR.MRUtilityKit;
+using UnityEngine;
+
+/// <summary>
+/// Provides the headset's MRUK Global Mesh.
+/// This will later replace the old keyframe capture pipeline.
+/// </summary>
+public class GlobalMeshProvider : MonoBehaviour
+{
+    [SerializeField]
+    private bool writeObjForInspection = true;
+
+    public Mesh RoomMesh { get; private set; }
+
+    public Transform RoomMeshTransform { get; private set; }
+
+    public event Action<Mesh, Transform> RoomMeshReady;
+
+    private void OnEnable()
+    {
+        if (MRUK.Instance != null)
+            MRUK.Instance.SceneLoadedEvent.AddListener(OnSceneLoaded);
+    }
+
+    private void OnDisable()
+    {
+        if (MRUK.Instance != null)
+            MRUK.Instance.SceneLoadedEvent.RemoveListener(OnSceneLoaded);
+    }
+
+    private void OnSceneLoaded()
+    {
+        TryCaptureGlobalMesh();
+    }
+
+    public bool TryCaptureGlobalMesh()
+    {
+        var room = FindFirstObjectByType<MRUKRoom>();
+
+        if (room == null)
+        {
+            Debug.LogWarning("[GlobalMeshProvider] No MRUKRoom found.");
+            return false;
+        }
+
+        MeshFilter best = null;
+
+        foreach (var mf in FindObjectsByType<MeshFilter>(FindObjectsSortMode.None))
+        {
+            if (mf.sharedMesh == null)
+                continue;
+
+            if (mf.name.Contains("GlobalMesh") ||
+                mf.name.Contains("GLOBAL_MESH") ||
+                best == null ||
+                mf.sharedMesh.vertexCount > best.sharedMesh.vertexCount)
+            {
+                best = mf;
+            }
+        }
+
+        if (best == null || best.sharedMesh == null)
+        {
+            Debug.LogWarning("[GlobalMeshProvider] No Global Mesh MeshFilter found.");
+            return false;
+        }
+
+        RoomMesh = best.sharedMesh;
+        RoomMeshTransform = best.transform;
+
+        Debug.Log(
+            $"[GlobalMeshProvider] Global mesh: {RoomMesh.vertexCount} verts, {RoomMesh.triangles.Length / 3} tris");
+
+        if (writeObjForInspection)
+            WriteObj(RoomMesh, RoomMeshTransform);
+
+        RoomMeshReady?.Invoke(RoomMesh, RoomMeshTransform);
+
+        return true;
+    }
+
+    private static void WriteObj(Mesh mesh, Transform t)
+    {
+        var sb = new System.Text.StringBuilder();
+
+        var vertices = mesh.vertices;
+        var triangles = mesh.triangles;
+
+        foreach (var v in vertices)
+        {
+            var world = t.TransformPoint(v);
+            sb.AppendLine($"v {world.x} {world.y} {world.z}");
+        }
+
+        for (int i = 0; i < triangles.Length; i += 3)
+        {
+            sb.AppendLine(
+                $"f {triangles[i] + 1} {triangles[i + 1] + 1} {triangles[i + 2] + 1}");
+        }
+
+        string path = System.IO.Path.Combine(
+            Application.persistentDataPath,
+            "mruk_global_mesh.obj");
+
+        System.IO.File.WriteAllText(path, sb.ToString());
+
+        Debug.Log($"[GlobalMeshProvider] Wrote {path}");
+    }
+}
