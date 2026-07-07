@@ -34,6 +34,12 @@ public class ScanRoomFlow : MonoBehaviour
              "then auto-segments. ReloadExisting = reuse the existing scan (fast, no walking).")]
     [SerializeField] private ScanMode mode = ScanMode.FreshWalkAroundScan;
 
+    [Tooltip("PATH SELECTOR. OFF (default, Path B): Scan Room captures + STORES the HMD room " +
+             "mesh (mruk_global_mesh.obj) and segments it for demonstration/logging, but portals " +
+             "keep using the reliable BUNDLED clusters. ON (Path A): the live HMD clusters DRIVE " +
+             "the Add/Remove portals (dynamic, but cluster quality depends on the coarse HMD mesh).")]
+    [SerializeField] private bool drivePortalsFromScan = false;
+
     [SerializeField] private GlobalMeshProvider meshProvider;
     [SerializeField] private MeshSegmentationClient segmenter;
     [SerializeField] private ObjectPicker objectPicker;
@@ -116,12 +122,27 @@ public class ScanRoomFlow : MonoBehaviour
             yield break;
         }
 
-        // 4) Hand the clusters to ObjectPicker (Phase 4). Parent under the MRUK mesh
-        //    transform so picks land on the object (match-space == render-space).
-        Debug.Log($"[SCANFLOW] Loading {result.count} clusters from {result.base_url}.");
-        objectPicker.ReloadClustersFromUrl(result.base_url, meshT);
+        // 4) Path selector.
+        if (drivePortalsFromScan)
+        {
+            // PATH A: the live HMD clusters drive the portals. Parent under the MRUK
+            // mesh transform so picks land on the object (match-space == render-space).
+            Debug.Log($"[SCANFLOW] PATH A: driving portals from {result.count} live clusters ({result.base_url}).");
+            objectPicker.ReloadClustersFromUrl(result.base_url, meshT);
+            Debug.Log("[SCANFLOW] Done. Add/Remove Portal now use the LIVE scanned objects.");
+        }
+        else
+        {
+            // PATH B (default): the scan is captured, STORED (mruk_global_mesh.obj), and
+            // segmented for demonstration/logging, but the reliable BUNDLED clusters keep
+            // driving the portals. See Docs/hmd-scan-pipeline-report.md for the rationale
+            // (coarse HMD mesh -> unreliable live clusters).
+            Debug.Log($"[SCANFLOW] PATH B: scan stored + segmented ({result.count} clusters logged), " +
+                      "but portals keep using the bundled clusters. " +
+                      "Set drivePortalsFromScan=true to switch to the live pipeline.");
+            Debug.Log("[SCANFLOW] Stored mesh at persistentDataPath/mruk_global_mesh.obj.");
+        }
 
-        Debug.Log("[SCANFLOW] Done. Use Add/Remove Portal to place portals on the scanned objects.");
         _running = false;
     }
 }

@@ -47,14 +47,14 @@ import glob
 # Tunables.
 # ---------------------------------------------------------------------------
 NUM_POINTS        = 100000  # points sampled from the mesh (matches original)
-NUM_PLANES        = 12      # dominant planes RANSAC strips (floor/walls/ceiling)
-PLANE_DIST        = 0.06    # RANSAC plane inlier distance (m), same as original
+NUM_PLANES        = 6       # dominant planes RANSAC strips (floor/walls/ceiling)
+PLANE_DIST        = 0.03    # RANSAC plane inlier distance (m), same as original
 
-EPS               = 0.13    # DBSCAN neighbourhood radius in the COMBINED feature
+EPS               = 0.15    # DBSCAN neighbourhood radius in the COMBINED feature
                             # space. Same scale as the original position eps.
 MIN_POINTS        = 20      # DBSCAN core-point threshold (same as original)
 
-NORMAL_WEIGHT     = 0.35    # THE NEW IMPORTANT KNOB (`w` above). Units: metres-
+NORMAL_WEIGHT     = 0.25    # THE NEW IMPORTANT KNOB (`w` above). Units: metres-
                             # equivalent applied to the unit normal. Higher =
                             # normals matter more = splits HARDER at creases
                             # (more over-split, the recoverable direction). Lower
@@ -62,8 +62,8 @@ NORMAL_WEIGHT     = 0.35    # THE NEW IMPORTANT KNOB (`w` above). Units: metres-
                             # DBSCAN (more merges). Try 0.1 / 0.2 / 0.3.
 
 KNN_NORMALS       = 30      # neighbours for normal estimation on the cloud
-MIN_CLUSTER_POINTS = 80     # drop specks (same threshold the original used)
-BBOX_PAD          = 1.05    # crop padding (same as original; lower to 1.0 if box
+MIN_CLUSTER_POINTS = 200    # drop specks (same threshold the original used)
+BBOX_PAD          = 1.2     # crop padding (same as original; lower to 1.0 if box
                             # padding fills gaps between e.g. chair legs)
 
 
