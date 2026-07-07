@@ -50,6 +50,11 @@ public class ObjectPicker : MonoBehaviour
     // set via ReloadClustersFromUrl). When null, clusters fall back to _sceneMeshTransform.
     private Transform _serverClusterParent;
 
+    // Bumped on every reload so the MeshDownloadManager cache keys are unique per load.
+    // Without this, "cluster_preload_{id}" collides with the bundled load's keys and the
+    // manager returns the old (destroyed -> null) cached object -> "Preload failed".
+    private int _loadGeneration;
+
     [Header("Portal mode toggles (ToolMenu)")]
     [Tooltip("The 'Add Portal' Toggle. Used to auto-turn-off the other toggle so " +
              "Add/Remove are mutually exclusive. Optional but recommended.")]
@@ -169,6 +174,7 @@ public class ObjectPicker : MonoBehaviour
         }
         Debug.Log($"[ObjectPicker] Reloading clusters from {baseUrl} under '{meshTransform.name}'.");
         ClearAllClusters();
+        _loadGeneration++;                     // fresh cache keys so we re-download
         clusterBaseUrl = baseUrl;
         _serverClusterParent = meshTransform;
         _sceneMeshTransform = meshTransform;   // so the preload guard passes
@@ -224,7 +230,7 @@ public class ObjectPicker : MonoBehaviour
                 if (!path.Contains("://")) path = "file://" + path;
             }
 
-            var task = MeshDownloadManager.Instance.LoadMeshFromServer($"cluster_preload_{id}", path, flipOverride);
+            var task = MeshDownloadManager.Instance.LoadMeshFromServer($"cluster_preload_{_loadGeneration}_{id}", path, flipOverride);
             while (!task.IsCompleted) yield return null;
             GameObject obj = task.Result;
             if (obj == null) { Debug.LogWarning($"[ObjectPicker] Preload cluster{id} failed."); continue; }
