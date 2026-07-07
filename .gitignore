@@ -134,3 +134,13 @@ Assets/TriLib.meta
 Assets/SimpleCollada.meta
 Assets/CompositionLayers/UserSettings/
 Assets/CompositionLayers/UserSettings.meta
+
+# Junk that should never be committed
+Assets/_Recovery/
+Assets/_Recovery.meta
+Assets/StreamingAssets/clusters/__pycache__/
+Assets/StreamingAssets/clusters/__pycache__.meta
+Assets/StreamingAssets/clusters/ScreenCamera_*
+Assets/StreamingAssets/clusters/ScreenCapture_*
+.vscode/
+mozart-unity-fat.slnx
