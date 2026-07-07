@@ -104,3 +104,20 @@ mruk_global_mesh.obj
 /captures/
 /scans/
 dataset_*
+
+# Session/experiment docs kept locally but not committed (per PR scope)
+CLEANUP_LOG.md
+DYNAMIC_MESH_DEMO_AUDIT.md
+IMPLEMENTATION_NOTES.md
+MRUK_DYNAMIC_PORTALS_HANDOFF.md
+Docs/deep-research-prompt-live-scan-reconstruction.md
+Docs/hmd-scan-pipeline-report.md
+Docs/internship-report-draft.md
+Docs/keyframe-capture-stage1-progress.md
+Docs/lccp-via-cloudcompare-guide.md
+Docs/milestone-progress-2026-06-22.md
+Docs/milestone-progress-2026-06-23.md
+Docs/object-shaped-portals-implementation.md
+Docs/seg_algo_options.md
+Docs/segmentation-algorithm-ranking.md
+tools/segmentation_server/README.md
