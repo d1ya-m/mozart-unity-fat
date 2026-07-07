@@ -13,6 +13,15 @@ multiple portals can be added/removed individually.
 > portal content. See the new **§13 — Dynamic Occlusion (Environment Depth)**.
 > ⚠️ This supersedes the earlier statements in §4.3 that occlusion was untouched.
 
+> **Update 2026-07-06 — PART TWO added:** Work has started on letting the user
+> **scan their own room live on the Quest** and reconstruct a fresh mesh to feed the
+> segmentation → portal pipeline (instead of the pre-baked `mesh-3hz-4.obj`). Stage 1
+> (on-device capture) **works**; Stage 2 (mesh reconstruction) has correct per-frame
+> geometry but an **unresolved multi-frame alignment issue**; Stage 3 (auto-segment +
+> wire in) is **not yet end-to-end**. See **PART TWO** (§S0–§S9) at the end of this
+> document, including the current blocker (§S6), run instructions (§S7), and the
+> cleanup checklist (§S8).
+
 ---
 
 ## 1. Goal & Concept
@@ -711,3 +720,476 @@ git checkout -b restore-normals dc2de3e
 > If you have uncommitted work at restore time, `git stash` first, then
 > `git stash pop` after. (Hashes are stable as long as history isn't rewritten;
 > `git log --oneline` will show them if they ever change.)
+
+---
+
+# PART TWO — Live Room Scanning → Fresh Mesh → Segmentation
+
+> **Added 2026-07-06.** Everything above (Part One) assumes the room mesh is
+> **pre-baked** offline (`mesh-3hz-4.obj`) and segmented once. Part Two is the new
+> work: let the **user scan their own room on the Quest 3**, reconstruct a fresh
+> mesh from that scan, and feed it into the same segmentation → portal pipeline.
+> This part is **IN PROGRESS** — the capture (Stage 1) works and is verified; the
+> mesh reconstruction (Stage 2) produces geometrically-correct-per-frame output but
+> still has a **multi-frame alignment problem** (documented in §S6). Stage 3
+> (auto-segment + wire into the portal UI) is **not yet wired end-to-end**.
+
+## S0. Why this exists — the goal pipeline vs the current pipeline
+
+### Current pipeline (Part One, working)
+```
+[offline, once]  dense room scan (external camera) ─► mesh-3hz-4.obj
+                                                          │
+                 export_clusters_normals.py  ◄────────────┘
+                 (RANSAC strip + normals-DBSCAN)
+                                                          │
+                                    clusterN.obj + clusters.json
+                                                          │
+[runtime, Quest] ObjectPicker preloads clusters ─► point + Add/Delete ─► portals
+```
+The mesh is **static** and baked once. If the room changes, or you want a
+different room, someone has to re-run the external-camera scan and the segmenter by
+hand, then rebuild.
+
+### Goal pipeline (Part Two, target)
+```
+[runtime, Quest]  user presses "Scan Room"
+                     │  walks around; on-device capture writes per-keyframe
+                     │  depth PNG + camera pose JSON
+                     ▼
+                  captures/<session>/  (frame_XXXX.json + .depth.png + manifest.json)
+                     │  adb pull  (or, future: pushed to a server)
+                     ▼
+[PC / server]     reconstruct_clean.py   ─►  mesh.obj      (Stage 2)
+                     ▼
+                  export_clusters_normals.py  ─►  clusterN.obj + clusters.json   (Stage 3)
+                     ▼
+[runtime, Quest]  ObjectPicker loads THOSE clusters ─► Add/Delete portals as before
+```
+The **key difference**: the mesh comes from the user's own live scan instead of a
+pre-baked file. Everything downstream (segmentation, ObjectPicker, Add/Delete
+portal UI, stencil rendering, occlusion) is **unchanged** — it just consumes a
+different `mesh.obj` / `clusterN.obj` set. That is the whole design intent: make
+the *input* mesh dynamic without touching the proven *downstream*.
+
+> **Where the two pipelines join:** Stage 2 must output an `.obj` that, once copied
+> to `Assets/StreamingAssets/clusters/mesh-3hz-4.obj` (the name the segmenter reads,
+> §2), makes `export_clusters_normals.py` produce `clusterN.obj` + `clusters.json`
+> that `ObjectPicker` already knows how to preload (§5). No runtime code change is
+> required for the clusters themselves — the Add/Delete portal buttons work with the
+> new clusters exactly as they did with the old ones.
+
+---
+
+## S1. Stage 1 — On-device capture (`KeyframeCaptureManager.cs`) — WORKING
+
+The capture script lives at `Assets/Scripts/Debug/KeyframeCaptureManager.cs`. It
+runs on the Quest and, **while scanning is on**, writes one *keyframe* per novel
+viewpoint as the user moves.
+
+### What one keyframe is
+Each accepted viewpoint produces two files under
+`Application.persistentDataPath/captures/<sessionId>/`:
+- **`frame_XXXX.depth.png`** — a 16-bit grayscale PNG. Each pixel is the metric
+  depth in **millimetres** (so 0..65535 covers 0..65.5 m). Encoded by a hand-rolled
+  PNG writer (`EncodeGray16Png`, with CRC32/Adler32/zlib) because Unity has no
+  16-bit-gray encoder.
+- **`frame_XXXX.json`** — the camera pose + intrinsics for that frame (schema below).
+
+Plus one **`manifest.json`** listing every frame, the capture resolution, and the
+depth scale (0.001 = mm→m).
+
+### The JSON schema (per frame)
+```jsonc
+{
+  "class_name": "PinholeCameraParameters",   // Open3D-compatible header
+  "extrinsic":  [16 floats],                 // Open3D world->camera (OpenCV convention)
+  "intrinsic":  { width, height, intrinsic_matrix:[9] },
+  "unity_position": [x,y,z],                 // raw Unity head world pos
+  "unity_rotation_quat_xyzw": [x,y,z,w],     // raw Unity head world rot
+  "head_view":  [16 floats],   // NEW (§S6): world->eye from the Unity HEAD pose
+  "depth_reprojection": [16],  // SDK's proj*view*trackingWorldToLocal (left eye)
+  "tracking_space_local_to_world": [16],
+  "depth_proj": [16],          // SDK depth-cam projection (eye->clip)
+  "depth_view": [16],          // SDK depth-cam view (world->eye, depth cam's OWN pose)
+  "depth_fov_tangents": [tanL, tanR, tanT, tanD],  // depth cam frustum half-angle tangents
+  "depth_near_far": [near, far]
+}
+```
+The many redundant fields exist because **we did not know up-front which coordinate
+convention would reconstruct correctly**, so we recorded *all* of them at capture
+time — that way we can re-derive the world points offline **without re-scanning**.
+This turned out essential (§S6).
+
+### How the depth-camera intrinsics/pose are obtained (C# reflection)
+The Meta SDK does **not** expose the depth camera's true FOV or pose publicly. It
+keeps them in an internal struct `Meta.XR.EnvironmentDepth.DepthFrameDesc` and an
+internal static `EnvironmentDepthUtils.CalculateDepthCameraMatrices`. We reach them
+with **`System.Reflection`** (`ResolveDepthReflection()`):
+- `EnvironmentDepthManager.frameDescriptors` (internal field) → the per-eye
+  `DepthFrameDesc` for the current depth frame.
+- `CalculateDepthCameraMatrices(desc, out proj, out view)` (internal static) → the
+  SDK's own `proj` and `view` matrices, written to the JSON as `depth_proj` /
+  `depth_view`, with the frustum tangents as `depth_fov_tangents`.
+
+Logcat confirms it resolved: `[KFCAP] Depth reflection resolved`. If the SDK ever
+renames these, you'll instead see `Depth reflection incomplete` and the field names
+must be re-checked.
+
+> **Why not the render-camera FOV?** The *render* camera (what you see in VR) has a
+> different (wider ~100°) FOV than the *depth* camera (~96°×100°, and off-centre —
+> see §S6). Using the render FOV fanned every frame's points out ~2× and nothing
+> aligned (the first big failure, 25 m mesh). The reflection path gets the depth
+> camera's TRUE optics.
+
+### Depth blit shader (`Assets/Materials/Shaders/EnvDepthCapture.shader`)
+The SDK's environment-depth texture is a `Texture2DArray` (per-eye slices). We blit
+slice 0 (left eye) into an `RFloat` render target, linearising the raw device depth
+to **metres** using `_EnvironmentDepthZBufferParams`. A subtle bug here (§S5, "0.13 m
+constant") was that the standard `SAMPLE_TEXTURE2D_X` macro fails in a non-stereo
+blit; the fix was to declare an explicit `Texture2DArray<float>` under a *distinct*
+name (`_EnvDepthArray`, bound from C# via `SetTexture`) and sample slice 0 directly.
+
+### Capture control — button/toggle (Stage 5)
+- `capturing` **starts OFF**. Scanning begins only when the user turns it on.
+- **`SetScanMode(bool on)`** — public, wired to the ToolMenu **"Scan Room" Toggle**
+  `On Value Changed (Boolean)` (dynamic bool), exactly like the Add/Delete portal
+  toggles (§10b). Turning it ON clears the keyframe list + skip counter and logs
+  `Scan STARTED`; OFF logs `Scan STOPPED. Captured N keyframes`.
+- **Controller shortcut** — right **A** (`OVRInput.Button.One`) or left **X**
+  (`Button.Three`) toggles scanning too, so you can start/stop even when the
+  ToolMenu panel is hidden (it is a head-follow panel and disappears when you look
+  away). The controller path drives `_scanToggle.isOn` so the UI and controller
+  never desync (falls back to calling `SetScanMode` directly if no toggle is wired).
+- `RefreshScanLabel()` updates the button sublabel live:
+  `press to start` → `scanning… N frames` → `done — N frames`.
+
+> **Required behaviour (per the brief):** the scan must happen **only** when the
+> user presses the Scan Room button, and stop when they press it again. That is now
+> the case (`capturing = false` by default; toggled solely by the button/controller).
+> An earlier debugging build had `capturing = true` (auto-start) to iterate faster;
+> that has been reverted.
+
+### Tracking-glitch guards (added 2026-07-06)
+When the headset briefly loses tracking (taken off, or moved too fast), the head
+pose snaps to near-origin `(0,0,~0)` and then jumps back. Those frames corrupt the
+cloud. Two guards in `Update()` reject them **at capture time**:
+- **Near-origin**: `headPos.sqrMagnitude < 0.01` (< 10 cm from world origin) → skip.
+- **Jump**: `Distance(headPos, lastKeyframePos) > 2 m` in one frame → skip + warn
+  `[KFCAP] Tracking glitch — pos jumped >2m, skipping frame.`
+
+A second, matching filter runs offline in Python (`_good_indices`, §S3) as a safety
+net for any that slip through.
+
+---
+
+## S2. Stage 1 verified behaviour (on-device)
+
+From `adb logcat -s Unity | grep KFCAP`, a good run shows:
+```
+[KFCAP] Session '2026-07-06_20-08-00' writing to: /storage/.../captures/2026-07-06_20-08-00
+[KFCAP] Depth reflection resolved — will capture clean proj/view per frame.
+[KFCAP] Head tracking initialised — capture enabled.
+[KFCAP] Scan STARTED by user.
+[KFCAP] CAPTURE #0 pos=(-0.04,1.48,-0.04) fwd=(-0.03,0.03,1.00) (skipped so far=0)
+[KFCAP] CAPTURE #1 ...
+...
+[KFCAP] Scan STOPPED. Captured 133 keyframes.
+```
+- ✅ Pose tracking, novelty selection, per-frame JSON + depth PNG all write.
+- ✅ `depth_proj` / `depth_view` / `depth_fov_tangents` / `head_view` present in JSON.
+- ✅ Glitch guard fires on real tracking loss.
+- ✅ 130+ keyframes captured in a ~2-minute scan.
+
+---
+
+## S3. Stage 2 — Offline reconstruction (Python, `captures/`)
+
+The reconstruction scripts live in the repo-root `captures/` folder (NOT in
+StreamingAssets — they are a PC-side tool, not shipped in the app).
+
+| File | Role |
+|---|---|
+| `captures/unproject_clean.py` | The core: turns one keyframe (depth PNG + pose) into 3D world points. Also a `main()` that prints alignment/planarity diagnostics for a session. |
+| `captures/reconstruct_clean.py` | Full pipeline: unproject every good frame → merge → denoise → Poisson mesh → write `<session>/mesh.obj`. |
+| `captures/reconstruct_tsdf.py`, `reconstruct_icp.py` | Older/alternative reconstructions (TSDF-merge, ICP-refined). Superseded by `reconstruct_clean.py`; kept for reference (candidates for deletion, §S8). |
+| `captures/test_reproj.py` + many `diag_*/check_*/solve_*` scripts | Diagnostic scratch scripts from the debugging journey (§S6). **All disposable** (§S8). |
+
+### The unprojection concept (what "unproject" means)
+A depth pixel says "there is a surface `z` metres away along this pixel's viewing
+ray." To place that surface in the shared world:
+1. **Pixel → eye-space ray.** For pixel `(u,v)`, the ray direction in the camera's
+   own frame is set by the **FOV tangents**:
+   ```
+   ray_x = -tanL + (u+0.5)/W * (tanL + tanR)
+   ray_y = -tanD + (v+0.5)/H * (tanD + tanT)
+   ```
+   (linear interpolation across the frustum: left edge → `-tanL`, right edge →
+   `+tanR`, etc.)
+2. **Scale by depth.** Eye-space point = `(z·ray_x, z·ray_y, −z)` (camera looks
+   down −Z, right-handed).
+3. **Eye → world.** `world = inv(view) · eye`.
+
+We deliberately use the **raw FOV tangents** (`depth_fov_tangents`), NOT the
+`depth_proj` matrix, because the proj matrix bakes the frustum offset into `a`/`b`
+terms whose sign convention we could not pin down (§S6 "Attempt with proj matrix").
+The tangents are unambiguous physical values, so the ray math is provably right.
+
+### The `main()` diagnostics
+`py -3.11 unproject_clean.py <session>` prints, for the first few good frame pairs:
+- **`extentA`** — bounding box of one frame's cloud (a single wall seen from 1–2 m
+  should be a few metres, not 8 m).
+- **`overlap`** — median nearest-neighbour distance between two adjacent frames'
+  clouds. **This is the alignment metric**: adjacent frames should overlap within
+  ~2–5 cm. Large overlap = misalignment.
+- **`merged bbox`** + **plane list** — RANSAC planes on the merged cloud with their
+  normals, labelled floor/ceil (n≈(0,1,0)) / wall (n·y≈0) / tilt.
+
+### The glitch filter (`_good_indices`)
+Drops frames whose `unity_position` is < 10 cm from origin, or that jump > 2 m from
+the last accepted frame. Prints e.g. `skip frame 39: jump 1.2m from last good`.
+
+### The Y clamp
+After unprojecting, points with world `Y < −0.1` or `Y > 4.5` m are discarded — a
+few bad frames cast rays far below the floor / above the ceiling, blowing up the
+bounding box. (A blunt instrument; see §S6 for why it's needed and §S8 for the
+principled replacement.)
+
+---
+
+## S4. Stage 2 pipeline (`reconstruct_clean.py`)
+
+```
+for each good frame:
+    pts = unproject_clean(...)          # depth PNG + pose -> world points
+    voxel_down_sample(0.03)             # thin to 3 cm grid
+merge all frames
+voxel_down_sample(0.03)
+remove_statistical_outlier(20, 2.0)     # drop flyers
+estimate_normals + orient_consistent
+Poisson(depth=9) -> mesh
+trim lowest-5%-density verts            # remove Poisson's balloon skin
+write <session>/mesh.obj
+```
+The Poisson step turns the point cloud into a watertight-ish triangle mesh (the
+format the segmenter needs).
+
+---
+
+## S5. Errors encountered & fixed (Stage 1 + 2), with the concept behind each
+
+| # | Symptom | Root cause | Fix | Concept |
+|---|---|---|---|---|
+| 1 | Depth PNG all one value (0.13 m / 0.22 m) | `SAMPLE_TEXTURE2D_X` macro needs the stereo keyword, absent in a plain blit → sampled empty texture | Declare explicit `Texture2DArray<float> _EnvDepthArray`, bind from C# via `SetTexture`, sample slice 0 | Stereo texture macros silently no-op outside a stereo pass |
+| 2 | Shader compile: `redefinition of _EnvironmentDepthTexture` | Our name clashed with the SDK global | Use a distinct name `_EnvDepthArray` | Global shader names are a flat namespace |
+| 3 | Reconstruction 25×11×21 m, hundreds of fragments | Used the **render** camera FOV (~100°, wide) not the **depth** camera FOV | Capture depth cam's own proj/view via reflection | Depth cam ≠ render cam optics |
+| 4 | `AttributeError: ndarray has no attribute 'ptp'` | NumPy removed `.ptp()` method | `np.ptp(x)` | API change |
+| 5 | Tracking glitch frames (pos `(0,0,0)` then wild jump) corrupt cloud | Headset removed / fast motion loses tracking | Near-origin + jump guards in C# **and** Python | IMU/inside-out tracking drops out; must be filtered |
+| 6 | `depth_near_far = [0.1, Infinity]` breaks matrix inverse | Depth cam uses an **infinite far plane**; `proj_inv` at z_ndc=+1 divides by zero | Don't decode via proj matrix; use FOV tangents | Reversed-Z / infinite-far projection is singular at the far plane |
+| 7 | Every unprojected pixel 34 cm off | `proj` matrix `a`/`b` (principal-point offset) sign convention unknown; the depth cam is **off-centre** (optical axis at pixel (194,306), not (256,256)) | Bypass proj matrix, use raw `depth_fov_tangents` | Asymmetric frustum: NDC (0,0) is NOT the optical axis |
+| 8 | Nested `captures/captures/...` folders on pull | `adb pull <dir> <dest>` where `<dest>` already contains a `captures` folder nests it | Pull to a fresh dir; or reconstruct against the deepest `2026-...` folder | `adb pull` copies the source *folder* into dest |
+| 9 | Merged mesh only floor/ceiling, XZ bbox 13×12 m | Multi-frame **rotation** drift (see §S6) — per-frame geometry correct, frames don't stack in X/Z | **Open** — mitigated with `head_view`; not fully solved | Small per-frame yaw error smears walls across metres |
+
+---
+
+## S6. Stage 2 CURRENT BLOCKER — multi-frame alignment (rotation drift)
+
+This is the open problem at the time of writing. **Read this before touching
+Stage 2.**
+
+### What is proven CORRECT
+- **Single-frame planarity is high (31–46%+ on the dominant plane).** One frame's
+  depth unprojects to clean flat surfaces with sensible normals — a frame facing a
+  wall gives a plane with normal along that wall's axis. → the **per-pixel depth →
+  world math is right.**
+- **Camera positions are right.** `inv(depth_view)·[0,0,0,1]` matches the logged
+  head position to a few cm.
+- **The room HEIGHT is right.** Merged `Y` extent comes out ~3.5–4.3 m consistently
+  — every frame agrees on floor-to-ceiling distance.
+
+### What is WRONG
+- **The horizontal (X/Z) extent is far too big (13×12 m for a small room), and
+  adjacent-frame `overlap` is inconsistent** (some pairs 1–2 cm ✅, others 50–60 cm
+  ❌). Frames that see the *same* wall place it at *different* world X/Z. Only
+  floor/ceiling planes survive RANSAC on the merged cloud because those are the only
+  surfaces all frames happen to agree on (they share the vertical axis).
+
+### Diagnosis
+The **rotation** in the per-frame `view` matrix drifts between frames. The Y axis
+(gravity) is stable across frames (hence correct height), but yaw/heading is not —
+a small per-frame heading error rotates each wall by a few degrees, and at 2–4 m
+range that smears the wall across metres in world X/Z. The camera *position* is
+fine; the camera *orientation* used for unprojection is slightly off per frame,
+and the errors don't cancel.
+
+### Attempts (chronological)
+1. **`depth_reprojection` composite matrix decode** — tried to recover camera
+   centre + ray directions from the SDK's `proj*view*trackingWorldToLocal`.
+   Unstable: the infinite far plane (#6) makes the w=0 direction trick degenerate;
+   forwards collapsed to −Y.
+2. **`depth_proj` + `depth_view` separately (via reflection)** — clean matrices, but
+   the `proj` principal-point terms `a`/`b` have a sign/convention we couldn't pin
+   down (#7): even the centre pixel came out 34 cm off.
+3. **Raw FOV tangents + `depth_view`** — fixed the per-pixel error (single-frame
+   planarity jumped to 30–46%, height correct). **Adjacent overlap improved to
+   1–2 cm for many pairs** — but some pairs still 50 cm, and merged XZ still 13 m.
+   → the *depth camera's own pose* (`depth_view`, from `DepthFrameDesc.createPose`)
+   is not perfectly time-synced with the head motion; its rotation drifts.
+4. **`head_view` (CURRENT)** — write a view matrix built from the **Unity head
+   pose** (which the POSE logs prove is smooth and correct) and prefer it over
+   `depth_view` in `unproject_clean`. Rationale: the head rotation is the reliable
+   signal; combine it with the depth FOV tangents for ray directions. **Requires a
+   fresh build + scan to test** (the field is new). Not yet verified to close the
+   gap.
+
+### The two candidate real fixes (if `head_view` alone isn't enough)
+- **ICP refinement** (`reconstruct_icp.py` exists): use each frame's captured pose
+  only as an *initial guess*, then register each frame onto the growing model with
+  point-to-plane ICP before merging. This is the standard robust-scanner approach
+  (KinectFusion-style) and directly corrects residual per-frame drift. Earlier ICP
+  attempts helped but weren't conclusive because the *input* unprojection was still
+  wrong then (#7); worth revisiting now that per-frame geometry is correct.
+- **Pose-graph / global registration** (Open3D `pipelines.registration` +
+  `global_optimization`) if sequential ICP accumulates drift over a full loop.
+
+### The Y clamp is a band-aid
+The `-0.1 < Y < 4.5` clamp (§S3) hides a few wildly-wrong frames rather than fixing
+them. Once alignment is solved it should be removed or replaced with a principled
+per-frame reject (e.g. reject a frame whose cloud centroid is implausibly far from
+the camera). Tracked in §S8.
+
+---
+
+## S7. How to run the whole thing (step by step)
+
+### A. Scan (Quest)
+1. Build & Run `current.unity` to the Quest (`File ▸ Build And Run`).
+2. Put the headset on. **Press the "Scan Room" button** in the ToolMenu (or the
+   controller **A** / **X** button). Logcat shows `Scan STARTED`.
+3. Scan slowly, **keeping your head roughly level** (walls need horizontal gaze;
+   don't spend the whole scan looking down):
+   - Face each wall directly from ~1–1.5 m, pan slowly L↔R and up/down (~10 s each).
+   - Briefly look at floor and ceiling.
+   - Look into each corner.
+   - Aim for **80–130 keyframes** (watch `CAPTURE #N` in logcat).
+4. **Press "Scan Room" again** (or A/X) to stop. Logcat: `Scan STOPPED. Captured N`.
+
+### B. Pull (PowerShell — Git Bash mangles `/sdcard/` paths)
+```powershell
+$adb = "C:\Program Files\Unity\Hub\Editor\6000.3.10f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe"
+& $adb pull "/sdcard/Android/data/cz.fitvut.fat/files/captures" "C:\Users\bambu\Documents\BRNO_internship\mozart-unity-fat\scans"
+```
+> ⚠️ `adb pull` copies the whole `captures` *folder* into the destination. Pulling
+> repeatedly into the same place creates nested `captures/captures/...` (bug #8).
+> Pull into a **fresh** `scans` dir, then find the newest `2026-...` session inside.
+
+### C. Reconstruct (PowerShell — open3d needs Python 3.11)
+```powershell
+cd "C:\Users\bambu\Documents\BRNO_internship\mozart-unity-fat\captures"
+# sanity check alignment first:
+py -3.11 unproject_clean.py "..\scans\captures\<SESSION>"
+# then build the mesh:
+py -3.11 reconstruct_clean.py "..\scans\captures\<SESSION>" --maxd 4.0 --voxel 0.03
+```
+Good output: adjacent-frame `overlap` ≤ ~5 cm; `merged bbox` ~ room-sized
+(e.g. 4×3×3 m); RANSAC planes include **walls** (n·y ≈ 0), not only floor/ceiling.
+Writes `<SESSION>/mesh.obj`.
+
+### D. Segment (Stage 3 — the join point)
+Copy the reconstructed mesh to the name the segmenter reads, then run it:
+```powershell
+copy "..\scans\captures\<SESSION>\mesh.obj" "..\Assets\StreamingAssets\clusters\mesh-3hz-4.obj"
+cd "..\Assets\StreamingAssets\clusters"
+py -3.11 export_clusters_normals.py
+```
+This regenerates `clusterN.obj` + `clusters.json` in place (§2). No runtime change:
+`ObjectPicker` reads `clusters.json` and preloads whatever indices it lists (§5).
+
+### E. Use the portals (Quest)
+Rebuild & Run. In the ToolMenu, use **Add Portal** / **Delete Portal** exactly as
+before (§10b) — they now operate on the clusters from *your* scan. Point at an
+object (green laser = on a cluster), pull the trigger to add/remove its portal.
+
+> **Not yet automated:** steps B–D are currently manual (pull, reconstruct,
+> segment, copy). The goal is to chain them — see §S8 "automation" — but the
+> alignment blocker (§S6) must be fixed first, otherwise the auto-produced clusters
+> would be garbage.
+
+---
+
+## S8. Cleanup checklist — what to remove once Stage 2 works and is final
+
+When the alignment problem (§S6) is solved and the pipeline is accepted, do this
+before merging so the branch is clean:
+
+### Python (`captures/`) — DELETE the scratch scripts
+These were one-off diagnostics from the §S6 journey and have **no place in the
+final pipeline**:
+- `test_reproj.py`, `diag_structure.py`, `debug_align.py`, `measure_align.py`,
+  `icp_check.py`, `check_extrinsic.py`, `check_relative.py`, `solve_convention.py`,
+  `test_depth_orient.py`, `find_pair.py`, `solve_focal.py`, `inspect_mesh.py`,
+  `test_depth_interp.py`, `show_cloud.py`, and any other `diag_*/check_*/solve_*`.
+- **Keep only** the winning path: `unproject_clean.py` + `reconstruct_clean.py`
+  (and `reconstruct_icp.py` **iff** ICP became the alignment fix; otherwise delete
+  it and `reconstruct_tsdf.py` too).
+
+### Python — remove band-aids from the survivors
+- Delete the **Y clamp** in `unproject_clean.py` (§S6) once alignment is fixed, or
+  replace it with a principled per-frame reject.
+- Fold the glitch filter's magic numbers (10 cm / 2 m) into named constants.
+- Delete `unproject_clean.mat_colmajor`'s unused branches and any dead
+  `depth_proj`/`a`/`b` code now that the tangent path won.
+
+### C# (`KeyframeCaptureManager.cs`) — trim redundant JSON fields
+Once we know **which** view convention wins (`head_view` vs `depth_view`), stop
+writing the losers to shrink each JSON and remove confusion:
+- If `head_view` wins: drop `depth_reprojection`, `depth_proj`, `depth_view`,
+  `depth_near_far` (keep `depth_fov_tangents` + `head_view` + `intrinsic`).
+- If `depth_view` wins: drop `head_view`, `depth_reprojection`, `depth_near_far`.
+- Keep `unity_position`/`unity_rotation_quat_xyzw` only if still used for the glitch
+  filter; otherwise drop.
+- Gate all the verbose `[KFCAP]` per-frame logs behind `verboseLogging` (already
+  done for POSE; verify CAPTURE lines too if logcat gets noisy).
+- Reduce `maxKeyframes` default from 300 to a realistic cap (~150) if desired.
+
+### C# — remove debug affordances
+- The **controller A/X toggle** can stay (it's genuinely useful) but should be
+  behind a `[SerializeField] bool allowControllerToggle` if a demo must avoid
+  accidental toggles.
+- Remove the `EnvDepthCapture.shader` debug modes if any remain (the doc says
+  they were already stripped to Mode 4 — verify).
+
+### Repo hygiene
+- The pulled `scans/` and `captures/<session>/` scan data are **large and
+  disposable** — add to `.gitignore`, don't commit raw scans.
+- Only commit: `KeyframeCaptureManager.cs`, `EnvDepthCapture.shader`,
+  `unproject_clean.py`, `reconstruct_clean.py`, and the scene wiring for the Scan
+  Room button. Keep the ~1 MB of `ScreenCamera_*`/`ScreenCapture_*` debug artifacts
+  out of `clusters/` unless they're actually used.
+
+### Automation (only after §S6 is fixed)
+- Wrap steps B–D (§S7) in a single `run_pipeline.ps1 <session>` that pulls,
+  reconstructs, copies to `mesh-3hz-4.obj`, and segments — so a scan turns into
+  clusters with one command.
+- Longer term (Part B / server): have the Quest POST the session to the segmentation
+  server (`/segment` endpoint, §10 "Runtime segmentation server endpoint") so the
+  loop closes without a PC in the middle.
+
+---
+
+## S9. Files changed / added in Part Two (for committing)
+
+**New:**
+- `captures/unproject_clean.py` — tangent-based unprojection + diagnostics.
+- `captures/reconstruct_clean.py` — Stage 2 mesh pipeline.
+- (scratch diagnostics in `captures/` — **do not commit**, see §S8.)
+
+**Modified:**
+- `Assets/Scripts/Debug/KeyframeCaptureManager.cs` — reflection-based depth params,
+  `head_view` field, glitch guards, Scan Room toggle + controller A/X toggle,
+  `capturing=false` default.
+- `Assets/Materials/Shaders/EnvDepthCapture.shader` — explicit `Texture2DArray`
+  slice-0 sampling, metric linearisation.
+- `Assets/Scenes/current.unity` — Scan Room button wiring (`SetScanMode`), sublabel.
+
+**Do NOT commit:** `scans/`, pulled `captures/<session>/` raw data (large, §S8).
