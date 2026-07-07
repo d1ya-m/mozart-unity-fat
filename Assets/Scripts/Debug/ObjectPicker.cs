@@ -35,6 +35,21 @@ public class ObjectPicker : MonoBehaviour
              "adb logcat). Leave OFF for normal use - warnings/errors still print.")]
     [SerializeField] private bool verboseLogging = false;
 
+    [Header("Server clusters (MRUK dynamic pipeline)")]
+    [Tooltip("When set (by ScanRoomFlow after segmentation), clusters load from this " +
+             "server base URL (e.g. http://192.168.1.50:5000/clusters/) INSTEAD of the " +
+             "bundled StreamingAssets. Empty = use the bundled fallback clusters.")]
+    [SerializeField] private string clusterBaseUrl = "";
+
+    [Tooltip("When loading server (MRUK-sourced) clusters, skip the OBJ X-flip. The MRUK " +
+             "mesh is already in Unity space, so flipping would mirror the picks. Bundled " +
+             "StreamingAssets clusters (from the external server mesh) keep the flip.")]
+    [SerializeField] private bool serverClustersSkipXFlip = true;
+
+    // The transform server clusters are parented under (the MRUK global-mesh transform,
+    // set via ReloadClustersFromUrl). When null, clusters fall back to _sceneMeshTransform.
+    private Transform _serverClusterParent;
+
     [Header("Portal mode toggles (ToolMenu)")]
     [Tooltip("The 'Add Portal' Toggle. Used to auto-turn-off the other toggle so " +
              "Add/Remove are mutually exclusive. Optional but recommended.")]
@@ -139,6 +154,27 @@ public class ObjectPicker : MonoBehaviour
         _clustersLoaded = false;
     }
 
+    /// <summary>
+    /// PUBLIC ENTRY for the MRUK pipeline (called by ScanRoomFlow after segmentation).
+    /// Clears any current clusters, then reloads from <paramref name="baseUrl"/> with the
+    /// clusters parented under <paramref name="meshTransform"/> (the MRUK global-mesh
+    /// transform) so match-space == render-space. Server clusters skip the OBJ X-flip.
+    /// </summary>
+    public void ReloadClustersFromUrl(string baseUrl, Transform meshTransform)
+    {
+        if (string.IsNullOrEmpty(baseUrl) || meshTransform == null)
+        {
+            Debug.LogWarning("[ObjectPicker] ReloadClustersFromUrl: empty url or null transform.");
+            return;
+        }
+        Debug.Log($"[ObjectPicker] Reloading clusters from {baseUrl} under '{meshTransform.name}'.");
+        ClearAllClusters();
+        clusterBaseUrl = baseUrl;
+        _serverClusterParent = meshTransform;
+        _sceneMeshTransform = meshTransform;   // so the preload guard passes
+        StartCoroutine(PreloadClustersCoroutine());
+    }
+
     private static void EnableMeshCollider(GameObject meshObj)
     {
         var colliders = meshObj.GetComponentsInChildren<Collider>(true);
@@ -166,18 +202,34 @@ public class ObjectPicker : MonoBehaviour
             yield break;
         }
 
+        // Server clusters (MRUK) load from the base URL with the X-flip skipped and are
+        // parented under the MRUK global-mesh transform. Bundled clusters keep the old
+        // file:// path, default flip, and ServerSceneMesh parent.
+        bool useServer = !string.IsNullOrEmpty(clusterBaseUrl);
+        bool? flipOverride = useServer && serverClustersSkipXFlip ? (bool?)false : null;
+        Transform clusterParent = useServer && _serverClusterParent != null
+            ? _serverClusterParent : _sceneMeshTransform;
+
         int loaded = 0;
         foreach (int id in indices)
         {
-            string path = Path.Combine(Application.streamingAssetsPath, $"clusters/cluster{id}.obj");
-            if (!path.Contains("://")) path = "file://" + path;
+            string path;
+            if (useServer)
+            {
+                path = clusterBaseUrl.TrimEnd('/') + $"/cluster{id}.obj";
+            }
+            else
+            {
+                path = Path.Combine(Application.streamingAssetsPath, $"clusters/cluster{id}.obj");
+                if (!path.Contains("://")) path = "file://" + path;
+            }
 
-            var task = MeshDownloadManager.Instance.LoadMeshFromServer($"cluster_preload_{id}", path);
+            var task = MeshDownloadManager.Instance.LoadMeshFromServer($"cluster_preload_{id}", path, flipOverride);
             while (!task.IsCompleted) yield return null;
             GameObject obj = task.Result;
             if (obj == null) { Debug.LogWarning($"[ObjectPicker] Preload cluster{id} failed."); continue; }
 
-            obj.transform.SetParent(_sceneMeshTransform, false);
+            obj.transform.SetParent(clusterParent, false);
             obj.transform.localPosition = Vector3.zero;
             obj.transform.localRotation = Quaternion.identity;
             obj.transform.localScale = Vector3.one;
@@ -217,12 +269,20 @@ public class ObjectPicker : MonoBehaviour
         Debug.Log($"[ObjectPicker] Preload complete: {loaded} clusters.");
     }
 
-    // Reads StreamingAssets/clusters/clusters.json (APK-safe via UnityWebRequest)
-    // and returns the list of cluster indices.
+    // Reads the cluster manifest. From the server base URL when set (MRUK pipeline),
+    // else the bundled StreamingAssets/clusters/clusters.json (APK-safe via UnityWebRequest).
     private System.Collections.IEnumerator LoadManifest(System.Action<List<int>> onDone)
     {
-        string path = Path.Combine(Application.streamingAssetsPath, "clusters/clusters.json");
-        if (!path.Contains("://")) path = "file://" + path;
+        string path;
+        if (!string.IsNullOrEmpty(clusterBaseUrl))
+        {
+            path = clusterBaseUrl.TrimEnd('/') + "/clusters.json";
+        }
+        else
+        {
+            path = Path.Combine(Application.streamingAssetsPath, "clusters/clusters.json");
+            if (!path.Contains("://")) path = "file://" + path;
+        }
         using var req = UnityEngine.Networking.UnityWebRequest.Get(path);
         yield return req.SendWebRequest();
         if (req.result != UnityEngine.Networking.UnityWebRequest.Result.Success)
@@ -339,6 +399,20 @@ public class ObjectPicker : MonoBehaviour
         if (pickedCluster < 0) { SetStatus("Not on an object. Aim at an object."); VLog("[ObjectPicker] No cluster under ray."); return; }
 
         VLog($"[ObjectPicker] PICK mode={_mode} cluster={pickedCluster} worldHit={hit.point}");
+
+        // COORDINATE VERIFICATION (Phase 4): log the aimed ray vs the picked cluster's
+        // world centroid. If the pick is correct, the hit point and the cluster centroid
+        // are both near where you're pointing. A mirrored/offset centroid means the
+        // X-flip decision is wrong (see IMPLEMENTATION_NOTES.md).
+        if (_clusterObjects.TryGetValue(pickedCluster, out var pickedObj) && pickedObj != null)
+        {
+            var mr = pickedObj.GetComponentInChildren<MeshRenderer>(true);
+            Vector3 centroid = mr != null ? mr.bounds.center : pickedObj.transform.position;
+            Debug.Log($"[ObjectPicker] PICKCHECK aim.origin={ray.origin} aim.dir={ray.direction} " +
+                      $"hit={hit.point} clusterCentroid={centroid} " +
+                      $"hit->centroid={(centroid - hit.point).magnitude:F2}m");
+        }
+
         if (_mode == PickMode.Add) AddPortal(pickedCluster);
         else if (_mode == PickMode.Remove) RemovePortal(pickedCluster);
     }

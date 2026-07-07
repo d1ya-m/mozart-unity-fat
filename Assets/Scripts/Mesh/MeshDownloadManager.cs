@@ -254,8 +254,13 @@ public class MeshDownloadManager : Singleton<MeshDownloadManager>
 
     /// <summary>
     /// Legacy direct download by URL. Kept for existing code paths outside scene-based loading.
+    /// <paramref name="overrideFlipX"/>: when non-null, forces the OBJ X-flip on/off for
+    /// THIS load instead of the default <see cref="flipObjXAxisForUnity"/>. MRUK-sourced
+    /// clusters are already in Unity space, so they pass <c>false</c> to skip the mirror
+    /// (see IMPLEMENTATION_NOTES.md — coordinate decision). Existing callers pass nothing
+    /// and keep the original behaviour.
     /// </summary>
-    public async Task<GameObject> LoadMeshFromServer(string meshName, string serverUrl = null)
+    public async Task<GameObject> LoadMeshFromServer(string meshName, string serverUrl = null, bool? overrideFlipX = null)
     {
         if (loadedMeshes.ContainsKey(meshName))
         {
@@ -273,7 +278,7 @@ public class MeshDownloadManager : Singleton<MeshDownloadManager>
                 throw new Exception("Downloaded mesh data is empty");
             }
 
-            GameObject meshObject = await LoadMeshFromBytes(meshName, meshData, downloadUrl);
+            GameObject meshObject = await LoadMeshFromBytes(meshName, meshData, downloadUrl, overrideFlipX);
             if (meshObject == null)
             {
                 throw new Exception("Failed to load mesh from bytes");
@@ -549,7 +554,7 @@ public class MeshDownloadManager : Singleton<MeshDownloadManager>
         return request.downloadHandler.data;
     }
 
-    private async Task<GameObject> LoadMeshFromBytes(string meshName, byte[] meshData, string sourceUrl)
+    private async Task<GameObject> LoadMeshFromBytes(string meshName, byte[] meshData, string sourceUrl, bool? overrideFlipX = null)
     {
         string extension = Path.GetExtension(meshName).ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(extension))
@@ -560,18 +565,20 @@ public class MeshDownloadManager : Singleton<MeshDownloadManager>
         switch (extension)
         {
             case ".obj":
-                return await LoadObjMesh(meshName, meshData, sourceUrl);
+                return await LoadObjMesh(meshName, meshData, sourceUrl, overrideFlipX);
             default:
                 throw new Exception($"Unsupported runtime mesh format: {extension}");
         }
     }
 
-    private async Task<GameObject> LoadObjMesh(string meshName, byte[] meshData, string sourceUrl)
+    private async Task<GameObject> LoadObjMesh(string meshName, byte[] meshData, string sourceUrl, bool? overrideFlipX = null)
     {
         try
         {
+            // Use the caller's override when given, else the manager default.
+            bool flipX = overrideFlipX ?? flipObjXAxisForUnity;
             string objContent = Encoding.UTF8.GetString(meshData);
-            var (vertices, triangles, normals, uvs) = ParseObjContent(objContent, flipObjXAxisForUnity);
+            var (vertices, triangles, normals, uvs) = ParseObjContent(objContent, flipX);
 
             Texture2D diffuseTexture = null;
             string mtlFileName = ExtractMtlFileName(objContent);
