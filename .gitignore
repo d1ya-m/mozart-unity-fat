@@ -121,3 +121,10 @@ Docs/object-shaped-portals-implementation.md
 Docs/seg_algo_options.md
 Docs/segmentation-algorithm-ranking.md
 tools/segmentation_server/README.md
+
+# Third-party Asset Store libraries — download separately, not committed
+# (matches the dynamic-occlusion PR convention)
+Assets/TriLib/
+Assets/TriLib.meta
+Assets/SimpleCollada/
+Assets/SimpleCollada.meta
