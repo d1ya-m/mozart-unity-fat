@@ -19,17 +19,80 @@ public class GlobalMeshProvider : MonoBehaviour
     public event Action<Mesh, Transform> RoomMeshReady;
 
     private Coroutine _waitCoroutine;
+    private bool _subscribed;
+
+    private void Awake()
+    {
+        Debug.Log("[KFGMP] Awake — script is alive");
+    }
 
     private void OnEnable()
     {
-        if (MRUK.Instance != null)
-            MRUK.Instance.SceneLoadedEvent.AddListener(OnSceneLoaded);
+        Debug.Log("[KFGMP] OnEnable");
+        TrySubscribe();
+    }
+
+    private void Start()
+    {
+        // MRUK.Instance may not exist yet at OnEnable (it initialises on its own
+        // schedule). Poll from Start so we (a) prove the script runs even if the
+        // SceneLoadedEvent never fires, and (b) subscribe as soon as MRUK appears,
+        // then just try to capture the mesh directly if the scene is already loaded.
+        Debug.Log("[KFGMP] Start — beginning MRUK poll");
+        StartCoroutine(PollForMruk());
+    }
+
+    // Subscribe to MRUK's SceneLoadedEvent once MRUK exists. Idempotent.
+    private void TrySubscribe()
+    {
+        if (_subscribed || MRUK.Instance == null)
+        {
+            if (MRUK.Instance == null)
+                Debug.Log("[KFGMP] MRUK.Instance is null (not ready yet).");
+            return;
+        }
+        MRUK.Instance.SceneLoadedEvent.AddListener(OnSceneLoaded);
+        _subscribed = true;
+        Debug.Log("[KFGMP] Subscribed to MRUK.SceneLoadedEvent.");
+    }
+
+    // Poll for MRUK for up to ~20s. Once MRUK exists, subscribe and also try a direct
+    // capture (in case the room is already loaded and we missed the event).
+    private IEnumerator PollForMruk()
+    {
+        for (int i = 0; i < 40; i++)   // 40 * 0.5s = 20s
+        {
+            if (MRUK.Instance == null)
+            {
+                Debug.Log($"[KFGMP] poll {i}: MRUK.Instance still null...");
+                yield return new WaitForSeconds(0.5f);
+                continue;
+            }
+
+            TrySubscribe();
+
+            // If a room already exists, capture directly (don't wait for the event).
+            if (FindFirstObjectByType<MRUKRoom>() != null)
+            {
+                Debug.Log("[KFGMP] MRUKRoom already present — capturing directly.");
+                if (_waitCoroutine == null)
+                    _waitCoroutine = StartCoroutine(WaitForGlobalMesh());
+                yield break;
+            }
+
+            Debug.Log($"[KFGMP] poll {i}: MRUK ready, waiting for a room...");
+            yield return new WaitForSeconds(0.5f);
+        }
+        Debug.LogWarning("[KFGMP] Gave up polling for MRUK/room after ~20s.");
     }
 
     private void OnDisable()
     {
-        if (MRUK.Instance != null)
+        if (_subscribed && MRUK.Instance != null)
+        {
             MRUK.Instance.SceneLoadedEvent.RemoveListener(OnSceneLoaded);
+            _subscribed = false;
+        }
 
         if (_waitCoroutine != null)
         {
@@ -40,6 +103,7 @@ public class GlobalMeshProvider : MonoBehaviour
 
     private void OnSceneLoaded()
     {
+        Debug.Log("[KFGMP] SceneLoadedEvent fired");
         if (_waitCoroutine != null)
             StopCoroutine(_waitCoroutine);
 
@@ -57,17 +121,17 @@ public class GlobalMeshProvider : MonoBehaviour
         {
             if (TryCaptureGlobalMesh())
             {
-                Debug.Log("[GlobalMeshProvider] Global mesh captured.");
+                Debug.Log("[KFGMP] Global mesh captured.");
                 _waitCoroutine = null;
                 yield break;
             }
 
-            Debug.Log("[GlobalMeshProvider] Waiting for GLOBAL_MESH...");
+            Debug.Log("[KFGMP] Waiting for GLOBAL_MESH...");
             yield return new WaitForSeconds(retryInterval);
             elapsed += retryInterval;
         }
 
-        Debug.LogWarning("[GlobalMeshProvider] Timed out waiting for GLOBAL_MESH.");
+        Debug.LogWarning("[KFGMP] Timed out waiting for GLOBAL_MESH.");
         _waitCoroutine = null;
     }
 
@@ -77,7 +141,7 @@ public class GlobalMeshProvider : MonoBehaviour
 
         if (room == null)
         {
-            Debug.LogWarning("[GlobalMeshProvider] No MRUKRoom found.");
+            Debug.LogWarning("[KFGMP] No MRUKRoom found.");
             return false;
         }
 
@@ -99,7 +163,7 @@ public class GlobalMeshProvider : MonoBehaviour
 
         if (best == null || best.sharedMesh == null)
         {
-            Debug.LogWarning("[GlobalMeshProvider] No Global Mesh MeshFilter found.");
+            Debug.LogWarning("[KFGMP] No Global Mesh MeshFilter found.");
             return false;
         }
 
@@ -107,7 +171,7 @@ public class GlobalMeshProvider : MonoBehaviour
         RoomMeshTransform = best.transform;
 
         Debug.Log(
-            $"[GlobalMeshProvider] Global mesh: {RoomMesh.vertexCount} verts, {RoomMesh.triangles.Length / 3} tris");
+            $"[KFGMP] Global mesh: {RoomMesh.vertexCount} verts, {RoomMesh.triangles.Length / 3} tris");
 
         if (writeObjForInspection)
             WriteObj(RoomMesh, RoomMeshTransform);
@@ -142,6 +206,6 @@ public class GlobalMeshProvider : MonoBehaviour
 
         System.IO.File.WriteAllText(path, sb.ToString());
 
-        Debug.Log($"[GlobalMeshProvider] Wrote {path}");
+        Debug.Log($"[KFGMP] Wrote {path}");
     }
 }
