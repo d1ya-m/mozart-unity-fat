@@ -58,8 +58,12 @@ works; we picked no-flip-both-legs because it's the least surprising.
 
 ## THE TWO DECISIONS (current values)
 
-1. **ScanMode** (Phase 5, not yet built) — default `ReloadExisting` (reuse the device's
-   existing room scan); `FreshSpaceSetup` forces a new Space Setup capture.
+1. **ScanMode** (ScanRoomFlow) — default **`FreshWalkAroundScan`**: pressing "Scan Room"
+   launches the Quest **Space Setup** wizard (`OVRScene.RequestSpaceSetup()`) so the user
+   physically WALKS AROUND and scans the room, then the app auto-loads + segments the
+   fresh result. Alternative `ReloadExisting` skips the wizard and reuses the existing
+   scan (fast, for repeat testing). NOTE: Space Setup is Meta's system UI — the app
+   pauses during it and resumes on finish/cancel; we can't restyle that wizard.
 2. **Coordinate basis** — NO X-flip both legs (see above).
 
 ---

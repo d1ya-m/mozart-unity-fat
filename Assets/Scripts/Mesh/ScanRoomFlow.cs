@@ -18,11 +18,21 @@ using UnityEngine;
 /// </summary>
 public class ScanRoomFlow : MonoBehaviour
 {
-    public enum ScanMode { ReloadExisting, FreshSpaceSetup }
+    public enum ScanMode
+    {
+        // Launch the Quest Space Setup wizard so the user WALKS AROUND and scans the
+        // room now, then load + segment the fresh result. This is the real "scan my
+        // room" experience. The app pauses during Space Setup (Meta's system UI) and
+        // resumes when the user finishes or cancels.
+        FreshWalkAroundScan,
+        // Skip the wizard; just load the room the headset already has (fast, good for
+        // repeat testing when the room hasn't changed).
+        ReloadExisting,
+    }
 
-    [Tooltip("ReloadExisting = reuse the device's existing room scan (fast, default). " +
-             "FreshSpaceSetup = ask the system to run Space Setup if no data is found.")]
-    [SerializeField] private ScanMode mode = ScanMode.ReloadExisting;
+    [Tooltip("FreshWalkAroundScan = press launches Quest Space Setup (user walks & scans), " +
+             "then auto-segments. ReloadExisting = reuse the existing scan (fast, no walking).")]
+    [SerializeField] private ScanMode mode = ScanMode.FreshWalkAroundScan;
 
     [SerializeField] private GlobalMeshProvider meshProvider;
     [SerializeField] private MeshSegmentationClient segmenter;
@@ -50,7 +60,19 @@ public class ScanRoomFlow : MonoBehaviour
             yield break;
         }
 
-        // 1) Load the MRUK room from device.
+        // 0) FreshWalkAroundScan: launch the Quest Space Setup wizard so the user walks
+        //    around and scans the room NOW. The app pauses (Meta system UI) and resumes
+        //    when they finish or cancel. RequestSpaceSetup completes successfully even on
+        //    cancel; we then just load whatever room exists.
+        if (mode == ScanMode.FreshWalkAroundScan)
+        {
+            Debug.Log("[SCANFLOW] Launching Space Setup (walk around and scan your room)...");
+            var setup = OVRScene.RequestSpaceSetup();
+            while (!setup.IsCompleted) yield return null;
+            Debug.Log($"[SCANFLOW] Space Setup returned: {setup.GetResult()}");
+        }
+
+        // 1) Load the MRUK room from device (the freshly-scanned one, or the existing one).
         if (MRUK.Instance == null)
         {
             Debug.LogError("[SCANFLOW] MRUK.Instance is null.");
@@ -59,7 +81,7 @@ public class ScanRoomFlow : MonoBehaviour
         }
 
         var loadTask = MRUK.Instance.LoadSceneFromDevice(
-            requestSceneCaptureIfNoDataFound: mode == ScanMode.FreshSpaceSetup);
+            requestSceneCaptureIfNoDataFound: mode == ScanMode.FreshWalkAroundScan);
         while (!loadTask.IsCompleted) yield return null;
         Debug.Log($"[SCANFLOW] LoadSceneFromDevice done: {loadTask.Result}");
 
