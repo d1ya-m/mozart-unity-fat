@@ -20,6 +20,7 @@ public class GlobalMeshProvider : MonoBehaviour
 
     private Coroutine _waitCoroutine;
     private bool _subscribed;
+    private bool _captured;   // becomes true once a valid global mesh is captured
 
     private void Awake()
     {
@@ -72,13 +73,14 @@ public class GlobalMeshProvider : MonoBehaviour
             TrySubscribe();
 
             // If a room already exists, capture directly (don't wait for the event).
-            if (FindFirstObjectByType<MRUKRoom>() != null)
+            if (!_captured && FindFirstObjectByType<MRUKRoom>() != null)
             {
                 Debug.Log("[KFGMP] MRUKRoom already present — capturing directly.");
                 if (_waitCoroutine == null)
                     _waitCoroutine = StartCoroutine(WaitForGlobalMesh());
                 yield break;
             }
+            if (_captured) yield break;
 
             Debug.Log($"[KFGMP] poll {i}: MRUK ready, waiting for a room...");
             yield return new WaitForSeconds(0.5f);
@@ -104,6 +106,7 @@ public class GlobalMeshProvider : MonoBehaviour
     private void OnSceneLoaded()
     {
         Debug.Log("[KFGMP] SceneLoadedEvent fired");
+        if (_captured) return;   // already have the mesh; ignore later scene events
         if (_waitCoroutine != null)
             StopCoroutine(_waitCoroutine);
 
@@ -121,6 +124,7 @@ public class GlobalMeshProvider : MonoBehaviour
         {
             if (TryCaptureGlobalMesh())
             {
+                _captured = true;
                 Debug.Log("[KFGMP] Global mesh captured.");
                 _waitCoroutine = null;
                 yield break;
@@ -135,6 +139,11 @@ public class GlobalMeshProvider : MonoBehaviour
         _waitCoroutine = null;
     }
 
+    // A room mesh must have at least this many triangles to be accepted. The MRUK
+    // GLOBAL_MESH is tens of thousands of tris; plane-anchor / UI meshes are tiny or
+    // zero-triangle. This rejects the "205 verts, 0 tris" decoy we saw on-device.
+    private const int MinGlobalMeshTriangles = 1000;
+
     public bool TryCaptureGlobalMesh()
     {
         var room = FindFirstObjectByType<MRUKRoom>();
@@ -145,25 +154,42 @@ public class GlobalMeshProvider : MonoBehaviour
             return false;
         }
 
+        // Pick the MeshFilter that best matches the GLOBAL_MESH:
+        //   1. Prefer a mesh whose object is named "..._EffectMesh" AND has triangles
+        //      (MRUK names the global-mesh GameObject "<anchorName>_EffectMesh").
+        //   2. Otherwise the mesh with the MOST triangles.
+        // A candidate MUST have >= MinGlobalMeshTriangles triangles to qualify, so the
+        // tiny 0-triangle decoy meshes are never selected.
         MeshFilter best = null;
+        int bestTris = 0;
+        bool bestNameMatch = false;
 
         foreach (var mf in FindObjectsByType<MeshFilter>(FindObjectsSortMode.None))
         {
-            if (mf.sharedMesh == null)
-                continue;
+            var m = mf.sharedMesh;
+            if (m == null) continue;
 
-            if (mf.name.Contains("GlobalMesh") ||
-                mf.name.Contains("GLOBAL_MESH") ||
-                best == null ||
-                mf.sharedMesh.vertexCount > best.sharedMesh.vertexCount)
+            int tris = m.triangles.Length / 3;
+            if (tris < MinGlobalMeshTriangles) continue;   // reject tiny/decoy meshes
+
+            bool nameMatch = mf.name.IndexOf("EffectMesh", StringComparison.OrdinalIgnoreCase) >= 0
+                          || mf.name.IndexOf("GlobalMesh", StringComparison.OrdinalIgnoreCase) >= 0
+                          || mf.name.IndexOf("GLOBAL_MESH", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            // A name match always beats a non-match; among equal match-status, more
+            // triangles wins.
+            bool better = best == null
+                || (nameMatch && !bestNameMatch)
+                || (nameMatch == bestNameMatch && tris > bestTris);
+            if (better)
             {
-                best = mf;
+                best = mf; bestTris = tris; bestNameMatch = nameMatch;
             }
         }
 
-        if (best == null || best.sharedMesh == null)
+        if (best == null)
         {
-            Debug.LogWarning("[KFGMP] No Global Mesh MeshFilter found.");
+            Debug.LogWarning($"[KFGMP] No global mesh yet (no MeshFilter with >= {MinGlobalMeshTriangles} tris).");
             return false;
         }
 
@@ -171,7 +197,8 @@ public class GlobalMeshProvider : MonoBehaviour
         RoomMeshTransform = best.transform;
 
         Debug.Log(
-            $"[KFGMP] Global mesh: {RoomMesh.vertexCount} verts, {RoomMesh.triangles.Length / 3} tris");
+            $"[KFGMP] Global mesh: {RoomMesh.vertexCount} verts, {RoomMesh.triangles.Length / 3} tris " +
+            $"(object='{best.name}', nameMatch={bestNameMatch})");
 
         if (writeObjForInspection)
             WriteObj(RoomMesh, RoomMeshTransform);
