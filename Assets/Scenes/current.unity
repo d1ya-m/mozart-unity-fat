@@ -594,7 +594,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &93094659
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13203,7 +13203,7 @@ MonoBehaviour:
   jpegQuality: 90
   maxFrames: 600
   scanning: 0
-  _scanToggle: {fileID: 0}
+  _scanToggle: {fileID: 971085031}
   _scanSublabel: {fileID: 971085030}
   verboseLogging: 1
 --- !u!4 &586501092
