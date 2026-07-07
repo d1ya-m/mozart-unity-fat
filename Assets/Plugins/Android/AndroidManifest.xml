@@ -17,6 +17,8 @@
   <uses-permission android:name="android.permission.INTERNET" />
   <!-- Required for Meta Environment Depth (dynamic occlusion of portal content). -->
   <uses-permission android:name="com.oculus.permission.USE_SCENE" />
+  <!-- Required for passthrough RGB camera access (QuestDatasetRecorder photo capture). -->
+  <uses-permission android:name="horizonos.permission.HEADSET_CAMERA" />
   <uses-feature android:name="android.hardware.vr.headtracking" android:version="1" android:required="true" />
   <horizonos:uses-horizonos-sdk horizonos:minSdkVersion="60" horizonos:targetSdkVersion="85" />
 </manifest>
