@@ -242,6 +242,39 @@ per-phase commit history on branch `mruk-dynamic-portals`.
 
 ---
 
+## 9b. RGB dataset recorder (for offline COLMAP/OpenMVS photogrammetry)
+
+Separate from the MRUK mesh path, `Assets/Scripts/Debug/QuestDatasetRecorder.cs` captures
+an **RGB photo dataset** on-device for later external reconstruction (COLMAP → OpenMVS).
+This is the "scan the room and store images" capability.
+
+- **Source:** the Quest passthrough **RGB camera** via `Meta.XR.PassthroughCameraAccess`
+  (NOT the depth sensor). Requires `horizonos.permission.HEADSET_CAMERA` (added to the
+  AndroidManifest) and a `PassthroughCameraAccess` component (CameraPosition = Left).
+- **Control:** the "Scan Room" toggle button → `SetScanMode(bool)` (press to start, press
+  again to stop); controller A/X also toggles. The button sublabel shows a live count
+  ("scanning… N photos" → "done — N photos").
+- **Output** — `Application.persistentDataPath/dataset_<sessionId>/`
+  (`/sdcard/Android/data/cz.fitvut.fat/files/dataset_<sessionId>/`):
+  ```
+  frames/left_000001.jpg …        RGB photos (1280×960, color)
+  calibration/left_camera.json    fx, fy, cx, cy, sensor resolution, lens offset
+  poses/frames.csv                per-frame: id, image, timestamp, position, quaternion
+  manifest.json                   session id + frame_count
+  ```
+- **Verified on device:** a 47-frame session produced valid RGB JPEGs (1280×960, 3
+  channels), real intrinsics (fx≈865, cx≈640), and per-frame poses — a COLMAP-ready
+  dataset.
+- **Pull it:** `adb pull //sdcard/Android/data/cz.fitvut.fat/files/dataset_<sessionId> .`
+- **Scope note:** only CAPTURE runs on-device. The COLMAP/OpenMVS reconstruction is a
+  separate offline PC step (not in this repo). This gives the clean, feature-rich RGB
+  input the photogrammetry pipeline needs — a better reconstruction source than the coarse
+  MRUK mesh (§6), at the cost of an offline processing step.
+
+`dataset_*` folders are gitignored (large scan output, not source).
+
+---
+
 ## 10. Dead code — the abandoned depth-reconstruction experiment (Path C)
 
 Before the MRUK approach, an earlier experiment tried to build the room mesh **from the
