@@ -73,6 +73,7 @@ See `tools/segmentation_server/README.md`. Summary: `pip install flask`,
 
 ## MANUAL TEST CHECKLIST (fill in as phases complete)
 - [x] Phase 2: KFGMP logs show one clean `50636 verts` capture; OBJ looks like the room.
-- [ ] Phase 3: `curl http://localhost:5000/health` → ok; POST an OBJ → clusters returned.
+- [x] Phase 3: server tested on the REAL room mesh → `{"count":31,"indices":[0..30]}`,
+      POST /segment returned 200. Laptop IP = 147.229.183.37 (use `http://147.229.183.37:5000`).
 - [ ] Phase 4: round-trip vertex match within epsilon; pick lands on aimed object (not mirrored).
 - [ ] Phase 5: Scan Room button → segment → portals appear with virtual content.
