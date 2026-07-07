@@ -71,6 +71,44 @@ See `tools/segmentation_server/README.md`. Summary: `pip install flask`,
 
 ---
 
+## PHASE 5 — EDITOR WIRING (manual, do in Unity)
+
+### A. Add the ScanRoomFlow component
+1. In the Hierarchy, create an empty GameObject `ScanRoomFlow` (or reuse an existing
+   manager object). Add the **ScanRoomFlow** script.
+2. In its Inspector, assign the 3 references:
+   - `Mesh Provider` = the `GlobalMeshProvider` GameObject.
+   - `Segmenter`     = a GameObject with **MeshSegmentationClient** (add the script to
+     any object, e.g. GlobalMeshProvider, and set its `Segment Server Url` =
+     `http://147.229.183.37:5000`  — YOUR laptop IP; re-check with `ipconfig`).
+   - `Object Picker` = the `ObjectPicker` GameObject.
+   - `Mode` = `ReloadExisting` (default).
+
+### B. Rewire the existing "Scan Room" button (IMPORTANT)
+The scene still has a "Scan Room" button wired to the OLD
+`KeyframeCaptureManager.SetScanMode` (that script is slated for deletion in Phase 1).
+Repoint it:
+1. Select the "Scan Room" button in the ToolMenu.
+2. In its `On Click` / `On Value Changed`, remove the `KeyframeCaptureManager.SetScanMode`
+   call.
+3. Add a call → object = `ScanRoomFlow`, function = `ScanRoomFlow.OnScanRoomPressed`.
+
+### C. Portal content (what shows INSIDE the portals)
+Add a virtual-scene object so portals aren't empty:
+1. Create a GameObject (e.g. a large inverted sphere / skybox quad / a small virtual
+   room) positioned around the play area.
+2. Put it on the **portalContent** layer (layer 10).
+3. Give its renderer a material using **Custom/PortalContentUnlit** (it already does
+   `Stencil Ref 6 Comp Equal`, so it only shows where a portal mask wrote stencil 6).
+   - Simplest: duplicate an existing PortalContentUnlit material, or create a new
+     material with that shader and a colour/texture you like.
+4. This shows through any portal, independent of the real room's texture.
+
+> The MASK path is unchanged — Add/Remove Portal still stencils the cluster silhouette;
+> this content object just fills what's revealed.
+
+---
+
 ## MANUAL TEST CHECKLIST (fill in as phases complete)
 - [x] Phase 2: KFGMP logs show one clean `50636 verts` capture; OBJ looks like the room.
 - [x] Phase 3: server tested on the REAL room mesh → `{"count":31,"indices":[0..30]}`,
