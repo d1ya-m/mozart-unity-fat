@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using Meta.XR.MRUtilityKit;
 using UnityEngine;
 
@@ -17,6 +18,8 @@ public class GlobalMeshProvider : MonoBehaviour
 
     public event Action<Mesh, Transform> RoomMeshReady;
 
+    private Coroutine _waitCoroutine;
+
     private void OnEnable()
     {
         if (MRUK.Instance != null)
@@ -27,11 +30,45 @@ public class GlobalMeshProvider : MonoBehaviour
     {
         if (MRUK.Instance != null)
             MRUK.Instance.SceneLoadedEvent.RemoveListener(OnSceneLoaded);
+
+        if (_waitCoroutine != null)
+        {
+            StopCoroutine(_waitCoroutine);
+            _waitCoroutine = null;
+        }
     }
 
     private void OnSceneLoaded()
     {
-        TryCaptureGlobalMesh();
+        if (_waitCoroutine != null)
+            StopCoroutine(_waitCoroutine);
+
+        _waitCoroutine = StartCoroutine(WaitForGlobalMesh());
+    }
+
+    private IEnumerator WaitForGlobalMesh()
+    {
+        const float timeout = 5f;
+        const float retryInterval = 0.5f;
+
+        float elapsed = 0f;
+
+        while (elapsed < timeout)
+        {
+            if (TryCaptureGlobalMesh())
+            {
+                Debug.Log("[GlobalMeshProvider] Global mesh captured.");
+                _waitCoroutine = null;
+                yield break;
+            }
+
+            Debug.Log("[GlobalMeshProvider] Waiting for GLOBAL_MESH...");
+            yield return new WaitForSeconds(retryInterval);
+            elapsed += retryInterval;
+        }
+
+        Debug.LogWarning("[GlobalMeshProvider] Timed out waiting for GLOBAL_MESH.");
+        _waitCoroutine = null;
     }
 
     public bool TryCaptureGlobalMesh()
