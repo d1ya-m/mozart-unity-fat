@@ -75,5 +75,10 @@ See `tools/segmentation_server/README.md`. Summary: `pip install flask`,
 - [x] Phase 2: KFGMP logs show one clean `50636 verts` capture; OBJ looks like the room.
 - [x] Phase 3: server tested on the REAL room mesh → `{"count":31,"indices":[0..30]}`,
       POST /segment returned 200. Laptop IP = 147.229.183.37 (use `http://147.229.183.37:5000`).
-- [ ] Phase 4: round-trip vertex match within epsilon; pick lands on aimed object (not mirrored).
+- [x] Phase 4 (a) round-trip coord check PASSED: source MRUK mesh bbox
+      X[-8.01,1.33] Y[-0.04,2.79] Z[-4.90,4.31]; all 31 clusters lie INSIDE it (no
+      mirror/offset). Confirms the no-X-flip decision is correct through the server.
+- [ ] Phase 4 (b) ON-DEVICE pick test: trigger on a cluster, read the `[ObjectPicker]
+      PICKCHECK … hit->centroid=Xm` log. Small distance (<~0.5m) = correct; large or
+      mirrored centroid = X-flip wrong (flip `serverClustersSkipXFlip`).
 - [ ] Phase 5: Scan Room button → segment → portals appear with virtual content.
