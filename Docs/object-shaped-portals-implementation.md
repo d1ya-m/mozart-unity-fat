@@ -725,6 +725,12 @@ git checkout -b restore-normals dc2de3e
 
 # PART TWO — Live Room Scanning → Fresh Mesh → Segmentation
 
+> ⚠️ **SUPERSEDED by PART THREE (2026-07-07).** The depth-frame reconstruction described
+> in this Part was **abandoned** (never resolved the alignment drift, §S6) and replaced by
+> the headset's MRUK global mesh. `KeyframeCaptureManager` + the reconstruction scripts are
+> now DEAD code (kept + documented, see §T7). Read Part Three for the final state; this Part
+> is retained only as the record of the attempt.
+
 > **Added 2026-07-06.** Everything above (Part One) assumes the room mesh is
 > **pre-baked** offline (`mesh-3hz-4.obj`) and segmented once. Part Two is the new
 > work: let the **user scan their own room on the Quest 3**, reconstruct a fresh
@@ -1193,3 +1199,138 @@ writing the losers to shrink each JSON and remove confusion:
 - `Assets/Scenes/current.unity` — Scan Room button wiring (`SetScanMode`), sublabel.
 
 **Do NOT commit:** `scans/`, pulled `captures/<session>/` raw data (large, §S8).
+
+---
+
+# PART THREE — MRUK Dynamic Portals (SUPERSEDES Part Two)
+
+> **Added 2026-07-07. Branch `mruk-dynamic-portals`.** Part Two's depth-frame
+> reconstruction (`KeyframeCaptureManager` → depth PNGs → offline Poisson) was
+> **abandoned** — it never resolved the multi-frame alignment drift (§S6). It is
+> replaced by using the **headset's own MRUK global scene mesh** as the live room
+> source. Part Two's code is now DEAD (kept + documented, not deleted). This part is
+> the real, working final state.
+>
+> Full standalone report: `Docs/hmd-scan-pipeline-report.md`. Coordinate/seam details:
+> `IMPLEMENTATION_NOTES.md`. Removals: `CLEANUP_LOG.md`.
+
+## T1. The three pipelines now in the codebase
+
+| Pipeline | Source of clusters | State | Drives portals? |
+|---|---|---|---|
+| **A — Live MRUK scan** | Headset MRUK global mesh → server segmentation → clusters | Present, **inactive by default** | Only if `ScanRoomFlow.drivePortalsFromScan = true` |
+| **B — Prebaked external mesh** | Bundled `clusterN.obj` (from `mesh-3hz-4.obj`) | **Active (default)** | ✅ Yes |
+| **C — Depth capture (Part Two)** | On-device depth PNG + offline reconstruction | **DEAD** (documented, unused) | No |
+
+**Shipped default = Path B** (reliable). Path A is a toggleable, documented deliverable
+whose cluster quality is gated by the coarse HMD mesh (see §T6 limitations).
+
+## T2. Goal pipeline (Path A) — what actually runs
+
+```
+Quest "Scan Room" button  →  ScanRoomFlow.OnScanRoomPressed()  (ONE press, not a toggle)
+  1. MRUK: OVRScene.RequestSpaceSetup() (walk-around) OR LoadSceneFromDevice (reuse)
+  2. GlobalMeshProvider.TryCaptureGlobalMesh()  → MRUK GLOBAL_MESH (~50 636 verts) + Transform
+        (also written to persistentDataPath/mruk_global_mesh.obj)
+  3. MeshSegmentationClient.Segment()  → POST OBJ to laptop Flask server
+        tools/segmentation_server/app.py runs export_clusters_normals.py → clusterN.obj + clusters.json
+  4. ObjectPicker.ReloadClustersFromUrl()  → download clusters, parent UNDER the MRUK mesh transform
+  5. Add/Remove Portal (UNCHANGED)  → StencilMask on the picked cluster
+```
+
+In **Path B** (default) steps 1–3 still run (the scan is captured, stored, and segmented for
+demonstration/logging), but step 4 is **skipped** — the bundled clusters keep driving portals.
+
+## T3. New runtime files (the mesh-source seam)
+
+| File | Purpose |
+|---|---|
+| `Assets/Scripts/Mesh/GlobalMeshProvider.cs` | **The mesh-source seam.** Grabs the MRUK `GLOBAL_MESH` MeshFilter at runtime; exposes `RoomMesh`, `RoomMeshTransform`, `RoomMeshReady`. Selects the real room mesh by requiring ≥1000 triangles + `*_EffectMesh` name (rejects the 0-tri decoy). A future COLMAP/SfM source implements the same shape and nothing downstream changes. |
+| `Assets/Scripts/Mesh/MeshSegmentationClient.cs` | Serializes the mesh to OBJ (world space, **no X-flip**) and POSTs to `{segmentServerUrl}/segment`; returns `{count, indices, base_url}`. Falls back to bundled clusters on failure. |
+| `Assets/Scripts/Mesh/ScanRoomFlow.cs` | Orchestrates the button flow. `ScanMode` (FreshWalkAroundScan / ReloadExisting) + `drivePortalsFromScan` (Path A vs B). |
+| `tools/segmentation_server/app.py` + `README.md` | Off-device Flask server wrapping `export_clusters_normals.py`. Works in a temp copy so it never clobbers the bundled fallback. Serves `/segment` + `/clusters/<file>`. |
+
+## T4. Changes to existing files (minimal, additive)
+
+| File | Change | Safe because |
+|---|---|---|
+| `ObjectPicker.cs` | +`clusterBaseUrl`, +`serverClustersSkipXFlip`, +`_serverClusterParent`, +`_loadGeneration`; `LoadManifest`/`PreloadClustersCoroutine` use the server URL when set; +public `ReloadClustersFromUrl(baseUrl, meshTransform)`; +`PICKCHECK` coord log | When `clusterBaseUrl` is empty (default) the original bundled path runs unchanged |
+| `MeshDownloadManager.cs` | +optional `bool? overrideFlipX = null` threaded through `LoadMeshFromServer`→`LoadMeshFromBytes`→`LoadObjMesh` | Defaults to the existing `flipObjXAxisForUnity`; all existing callers unaffected |
+| `export_clusters_normals.py` | Reverted to clean defaults after tuning experiments (see §T6) | Values match the original; external-mesh clusters stay clean |
+| `current.unity` | Scene wiring of GlobalMeshProvider/MeshSegmentationClient/ScanRoomFlow + Scan Room button → `ScanRoomFlow.OnScanRoomPressed` | Editor-only wiring |
+
+**Unchanged (protected):** StencilMask / PortalContentUnlit / SelectivePassthrough shaders,
+GameManager portal logic, MRUK core, and the bundled `mesh-3hz-4.{obj,mtl,jpg}` +
+`clusterN.obj`/`clusters.json`.
+
+## T5. Key decisions (verified)
+
+- **Coordinate convention — NO X-flip both legs.** MRUK mesh is already in Unity space; it
+  is exported unflipped and its clusters load with the flip bypassed (identity round-trip).
+  Verified: (a) all segmented clusters lie inside the source mesh bbox (no mirror); (b)
+  on-device `PICKCHECK` hit→centroid distances were **0.16–0.63 m** (correct, not mirrored).
+- **Cache keys per reload** — server clusters use `cluster_preload_{generation}_{id}` so they
+  don't collide with the bundled load's cache (that collision caused "Preload cluster0 failed
+  → 0 clusters"; fixed).
+- **GLOBAL_MESH selection** — ≥1000 tris + `*_EffectMesh` name (rejects the 205-vert/0-tri
+  plane-anchor decoy).
+- **Segmentation off-device** — Open3D can't run on Quest; a laptop Flask server wraps the
+  existing segmenter. Chosen over on-device C# RANSAC/DBSCAN (perf) and MRUK
+  `DestructibleGlobalMesh` (geometric chunks, not per-object).
+
+## T6. Limitations (why Path B is the default)
+
+The Quest MRUK mesh is **coarse and bumpy**, so RANSAC plane removal (which strips
+floor/walls/ceiling before object clustering) is unreliable — a see-saw with no clean middle:
+
+| Segmenter settings | Result on the same room |
+|---|---|
+| Original (6 planes @3cm, eps 0.15) | ~33 clusters incl. ~6 full-height wall/floor slabs |
+| Aggressive (12 planes @6cm, eps 0.13) | 10 object-sized clusters, walls gone — but many objects dropped |
+| Aggressive on a smaller scan | 4 clusters — over-stripped, room mostly empty |
+
+Also: scan-to-scan mesh variability (23 vs 4 clusters across presses), no colour/texture on
+the HMD mesh, and weakness on thin/concave/incomplete geometry. Full analysis + the
+HMD-vs-external-mesh comparison table: `Docs/hmd-scan-pipeline-report.md` §5–§6.
+
+**Conclusion:** the external mesh gives clean, stable clusters and the only textured content;
+the HMD mesh is fully dynamic (any room) but its coarse geometry makes automatic per-object
+segmentation unreliable without per-scan tuning. So portals ship on the external-mesh clusters
+(Path B); the live HMD scan is a demonstrated, toggleable capability (Path A).
+
+## T7. Dead code (Path C — kept, documented, unused)
+
+The earlier depth-frame experiment remains in the repo but **nothing runs it**:
+- `Assets/Scripts/Debug/KeyframeCaptureManager.cs` — depth PNG + pose capture (the source of
+  the leftover **"N frames" label** on the Scan Room button; cosmetic — the button itself
+  calls `ScanRoomFlow.OnScanRoomPressed`).
+- `Assets/Scripts/Debug/EnvDepthProbe.cs`, `Assets/Materials/Shaders/EnvDepthCapture.shader`,
+  and the inactive `KeyframeCapture` GameObject in `current.unity`.
+
+> ⚠️ The current **Scan Room button is NOT this experiment.** It is one-press (no on/off
+> toggle) and stores ONE OBJ (`mruk_global_mesh.obj`), not depth PNGs. The PNG/toggle
+> behaviour belonged to the dead `KeyframeCaptureManager`.
+
+Removed in cleanup: `export_clusters_lccp.py`, `lccp_open3d.py` (abandoned LCCP experiment),
+`mruk_global_mesh.obj` (regenerated artifact, now gitignored). See `CLEANUP_LOG.md`.
+
+## T8. How to run
+
+**Path B (default, reliable):** Build & Run. Portals use bundled clusters. Scan Room stores +
+segments the HMD mesh (logcat `[SCANFLOW] PATH B: ...`).
+
+**Path A (live pipeline):**
+1. Laptop: `pip install flask`; `py -3.11 tools/segmentation_server/app.py`.
+2. Unity: `MeshSegmentationClient.segmentServerUrl = http://<laptop-ip>:5000`; same Wi-Fi.
+3. Unity: `ScanRoomFlow.drivePortalsFromScan = true`.
+4. Build & Run; press Scan Room; watch `[SCANFLOW]/[SEGCLIENT]/[ObjectPicker]`; then
+   Add/Remove Portal on the scanned objects.
+
+## T9. Relationship to the object-shaped-portal GitHub issue
+
+This work satisfies the issue's core ask — portal masks that follow **real object geometry**
+(the cluster mesh) instead of a bounding box, so gaps (e.g. between table legs) stay visible —
+for **both** mesh sources, and provides the requested **coarse-HMD vs fine-external** mesh
+comparison (§T6, and `hmd-scan-pipeline-report.md` §6). The geometry-based mask was already
+met by the existing cluster→StencilMask path (Part One §5, §13.3); Part Three made the cluster
+**source** dynamic (the user's own live scan) and characterised its quality trade-off.
