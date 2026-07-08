@@ -5,6 +5,9 @@ Shader "Custom/PortalContentUnlit"
         _BaseMap ("Base Map", 2D) = "white" {}
         _BaseColor ("Base Color", Color) = (1,1,1,1)
         _EnvDepthBias ("Env Depth Bias", Float) = 0.015
+        [Enum(Off,0,Occ,1,VirtualDepth,2,EnvDepth,3,Compare,4)] _DebugMode ("Debug Mode", Float) = 0
+        _DebugRange ("Debug Range (m)", Float) = 5.0
+
     }
 
     SubShader
@@ -23,8 +26,8 @@ Shader "Custom/PortalContentUnlit"
             Name "UniversalForward"
             Tags { "LightMode"="UniversalForward" }
 
-            // Alpha blend so occluded pixels can fade/clip out.
             Blend SrcAlpha OneMinusSrcAlpha
+
             ZWrite Off
             ZTest Always
             Cull Back
@@ -33,18 +36,9 @@ Shader "Custom/PortalContentUnlit"
             #pragma vertex vert
             #pragma fragment frag
             #pragma multi_compile_instancing
-            // Toggling these keywords on the material enables environment-depth
-            // occlusion. With neither defined, the shader renders plain (no
-            // occlusion) - safe fallback if the depth texture isn't available.
             #pragma multi_compile _ HARD_OCCLUSION SOFT_OCCLUSION
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-            // Gives us _CameraDepthTexture + SampleSceneDepth(). The portal MASK
-            // mesh (Custom/StencilMask, Queue Geometry-1, ZWrite On) renders into
-            // this depth texture BEFORE the portal content, so at every portal
-            // pixel the camera depth holds the OPENING's front-most face depth -
-            // for ANY shape (cube, sphere, arbitrary object.obj), no shape math.
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
             #include "Packages/com.meta.xr.sdk.core/Shaders/EnvironmentDepth/URP/EnvironmentOcclusionURP.hlsl"
 
             TEXTURE2D(_BaseMap);
@@ -61,7 +55,6 @@ Shader "Custom/PortalContentUnlit"
             {
                 float4 positionHCS : SV_POSITION;
                 float2 uv : TEXCOORD0;
-                // Carries the data the Meta depth macros need (world pos etc).
                 META_DEPTH_VERTEX_OUTPUT(3)
                 UNITY_VERTEX_OUTPUT_STEREO
             };
@@ -70,7 +63,45 @@ Shader "Custom/PortalContentUnlit"
                 float4 _BaseMap_ST;
                 float4 _BaseColor;
                 float _EnvDepthBias;
+                float _DebugMode;
+                float _DebugRange;
             CBUFFER_END
+
+            // ----- Portal box (set from C# each frame via Shader.SetGlobal*) -----
+            float4x4 _PortalWorldToLocal;
+            float3   _PortalBoxCenter;
+            float3   _PortalBoxExtents;
+
+            // Returns the world position where the eye->fragment ray first enters
+            // the portal cube. Falls back to fragWorld if the ray misses the box.
+            float3 PortalFrontFaceWorld(float3 fragWorld)
+            {
+                float3 camWorld = GetCurrentViewPosition();
+
+
+                float3 dirWorld = fragWorld - camWorld;          // along the view ray
+
+                // Transform the ray into the box's local space. The ray parameter t
+                // is preserved because origin and direction use the same matrix.
+                float3 oL = mul(_PortalWorldToLocal, float4(camWorld, 1.0)).xyz - _PortalBoxCenter;
+                float3 dL = mul(_PortalWorldToLocal, float4(dirWorld, 0.0)).xyz;
+
+                float3 invD = 1.0 / dL;
+                float3 t0 = (-_PortalBoxExtents - oL) * invD;
+                float3 t1 = ( _PortalBoxExtents - oL) * invD;
+                float3 ts = min(t0, t1);
+                float3 tb = max(t0, t1);
+                float tNear = max(max(ts.x, ts.y), ts.z);
+                float tFar  = min(min(tb.x, tb.y), tb.z);
+
+                if (tFar < tNear || tFar < 0.0)
+                    return camWorld + normalize(dirWorld) * 0.01; // ray misses → keep portal solid
+          
+
+                float tEnter = max(tNear, 0.0);  // camera inside box -> front at camera
+                return camWorld + tEnter * dirWorld;
+            }
+
 
             Varyings vert(Attributes input)
             {
@@ -86,46 +117,52 @@ Shader "Custom/PortalContentUnlit"
             half4 frag(Varyings input) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
-                half4 col = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv) * _BaseColor;
+                half4 texColor = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv);
+                float occ = META_DEPTH_GET_OCCLUSION_VALUE_WORLDPOS(PortalFrontFaceWorld(input.posWorld), _EnvDepthBias);
 
-                // OCCLUSION REFERENCE = THE PORTAL OPENING, NOT THE VIRTUAL ROOM.
-                //
-                // The portal content material is painted on the VIRTUAL ROOM mesh,
-                // so input.posWorld is a point deep inside the virtual scene. Using
-                // it as the reference made the occlusion ask "is the real object in
-                // front of the virtual wall?" - so a real cupboard with a distant
-                // virtual wall behind it punched holes in the portal (the cupboard
-                // bug).
-                //
-                // Instead we read the depth the portal MASK mesh already wrote into
-                // _CameraDepthTexture and reconstruct that opening point's world
-                // position. Feeding THAT to the occlusion macro makes the question
-                // "is the real object in front of the portal OPENING?":
-                //   real in front of opening  -> occ=0 -> show real world (hands)
-                //   real behind/inside opening -> occ=1 -> portal stays solid
-                //     (cupboards behind it AND people stepping into the volume)
-                // This reads rasterized geometry, so it works for any opening shape.
                 #if defined(HARD_OCCLUSION) || defined(SOFT_OCCLUSION)
-                    // Screen UV of THIS pixel. GetNormalizedScreenSpaceUV handles the
-                    // render-target scale AND the per-eye stereo viewport correctly -
-                    // doing this by hand (positionHCS.xy / _ScaledScreenParams.xy)
-                    // sampled the depth texture at a shifted pixel, which displaced
-                    // the reconstructed opening (hole misaligned, worse with distance
-                    // and when the viewport changed in add/delete mode).
-                    float2 screenUV = GetNormalizedScreenSpaceUV(input.positionHCS);
-                    float openingRawDepth = SampleSceneDepth(screenUV);
-                    // Reconstruct the opening's world position. unity_MatrixInvVP is
-                    // already the per-eye inverse view-projection in single-pass stereo.
-                    float3 openingWorld = ComputeWorldSpacePosition(screenUV, openingRawDepth, UNITY_MATRIX_I_VP);
+                if (_DebugMode > 0.5)
+                {
+                    float4 depthSpace = mul(_EnvironmentDepthReprojectionMatrices[unity_StereoEyeIndex],
+                                            float4(input.posWorld, 1.0));
+                    float2 envUV      = (depthSpace.xy / depthSpace.w + 1.0) * 0.5;
+                    float virtualLinear = (1.0 / ((depthSpace.z / depthSpace.w)
+                                          + _EnvironmentDepthZBufferParams.y)) * _EnvironmentDepthZBufferParams.x;
+                    float envLinear = SampleEnvironmentDepthLinear(envUV);
 
-                    float occ = META_DEPTH_GET_OCCLUSION_VALUE_WORLDPOS(openingWorld, _EnvDepthBias);
-                    col.a *= saturate(occ);
-                    clip(col.a - 0.001);
+                    if (_DebugMode < 1.5)
+                        return half4(occ, occ, occ, 1);
+
+                    if (_DebugMode < 2.5)
+                    {
+                        float t = saturate(virtualLinear / _DebugRange);
+                        return half4(t, 1.0 - t, 0, 1);
+                    }
+
+                    if (_DebugMode < 3.5)
+                    {
+                        if (envLinear > 50.0) return half4(0, 0, 1, 1);
+                        float t = saturate(envLinear / _DebugRange);
+                        return half4(t, 1.0 - t, 0, 1);
+                    }
+
+                    if (envLinear > 50.0) return half4(0, 0, 1, 1);
+                    return (envLinear < virtualLinear) ? half4(1,0,0,1) : half4(0,1,0,1);
+                }
                 #endif
-
+                
+                half4 col = texColor * _BaseColor;
+                col.a *= saturate(occ);
+                clip(col.a - 0.001);
                 return col;
             }
+
+
+
+
+
             ENDHLSL
         }
+
     }
 }
