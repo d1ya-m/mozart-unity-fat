@@ -118,22 +118,54 @@ public class QuestDatasetRecorder : MonoBehaviour
     private void SaveCalibration()
     {
         var intr = leftCamera.Intrinsics;
+
+        // The SDK reports fx/fy/cx/cy at Intrinsics.SensorResolution, but the frames are
+        // saved at CurrentResolution (the actual playback size). These are NOT guaranteed
+        // equal (the SDK itself crops/scales between them — see PassthroughCameraAccess
+        // CalcSensorCropRegion). If we wrote the sensor-resolution intrinsics against
+        // CurrentResolution-sized JPGs, any offline reconstruction (COLMAP/OpenMVS) that
+        // trusts the calibration would be off. So SCALE the intrinsics to the actual frame
+        // resolution and write the calibration at THAT resolution, keeping everything
+        // consistent with the saved images.
+        Vector2Int sensorRes = intr.SensorResolution;
+        Vector2Int frameRes = leftCamera.CurrentResolution;
+
+        float sx = (sensorRes.x > 0) ? (float)frameRes.x / sensorRes.x : 1f;
+        float sy = (sensorRes.y > 0) ? (float)frameRes.y / sensorRes.y : 1f;
+
+        float fx = intr.FocalLength.x * sx;
+        float fy = intr.FocalLength.y * sy;
+        float cx = intr.PrincipalPoint.x * sx;
+        float cy = intr.PrincipalPoint.y * sy;
+
         var sb = new StringBuilder();
         var ci = CultureInfo.InvariantCulture;
         sb.Append("{\n");
         sb.Append($"  \"camera\": \"left\",\n");
-        sb.Append($"  \"width\": {intr.SensorResolution.x},\n");
-        sb.Append($"  \"height\": {intr.SensorResolution.y},\n");
-        sb.Append($"  \"fx\": {intr.FocalLength.x.ToString(ci)},\n");
-        sb.Append($"  \"fy\": {intr.FocalLength.y.ToString(ci)},\n");
-        sb.Append($"  \"cx\": {intr.PrincipalPoint.x.ToString(ci)},\n");
-        sb.Append($"  \"cy\": {intr.PrincipalPoint.y.ToString(ci)},\n");
+        // width/height and fx/fy/cx/cy are all at the FRAME resolution (= the saved JPGs).
+        sb.Append($"  \"width\": {frameRes.x},\n");
+        sb.Append($"  \"height\": {frameRes.y},\n");
+        sb.Append($"  \"fx\": {fx.ToString(ci)},\n");
+        sb.Append($"  \"fy\": {fy.ToString(ci)},\n");
+        sb.Append($"  \"cx\": {cx.ToString(ci)},\n");
+        sb.Append($"  \"cy\": {cy.ToString(ci)},\n");
+        // Also record the raw sensor values + resolutions for transparency/debugging.
+        sb.Append($"  \"sensor_width\": {sensorRes.x},\n");
+        sb.Append($"  \"sensor_height\": {sensorRes.y},\n");
+        sb.Append($"  \"sensor_fx\": {intr.FocalLength.x.ToString(ci)},\n");
+        sb.Append($"  \"sensor_fy\": {intr.FocalLength.y.ToString(ci)},\n");
+        sb.Append($"  \"sensor_cx\": {intr.PrincipalPoint.x.ToString(ci)},\n");
+        sb.Append($"  \"sensor_cy\": {intr.PrincipalPoint.y.ToString(ci)},\n");
         sb.Append($"  \"lens_offset_position\": [{intr.LensOffset.position.x.ToString(ci)}, {intr.LensOffset.position.y.ToString(ci)}, {intr.LensOffset.position.z.ToString(ci)}],\n");
         sb.Append($"  \"lens_offset_rotation_xyzw\": [{intr.LensOffset.rotation.x.ToString(ci)}, {intr.LensOffset.rotation.y.ToString(ci)}, {intr.LensOffset.rotation.z.ToString(ci)}, {intr.LensOffset.rotation.w.ToString(ci)}]\n");
         sb.Append("}\n");
         File.WriteAllText(Path.Combine(_datasetDir, "calibration", "left_camera.json"), sb.ToString());
         _calibrationSaved = true;
-        Log($"[DSREC] Saved calibration (fx={intr.FocalLength.x:F1} res={intr.SensorResolution.x}x{intr.SensorResolution.y}).");
+
+        if (sensorRes != frameRes)
+            Log($"[DSREC] Calibration scaled: sensor {sensorRes.x}x{sensorRes.y} -> frame {frameRes.x}x{frameRes.y} (fx {intr.FocalLength.x:F1}->{fx:F1}).");
+        else
+            Log($"[DSREC] Saved calibration (fx={fx:F1} res={frameRes.x}x{frameRes.y}, sensor==frame).");
     }
 
     private void CaptureFrame()

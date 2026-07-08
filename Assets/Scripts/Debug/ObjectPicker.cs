@@ -205,6 +205,11 @@ public class ObjectPicker : MonoBehaviour
             Debug.LogError("[ObjectPicker] clusters.json missing/empty - no clusters to load.");
             SetStatus("ERROR: clusters.json not found.");
             _isLoading = false;
+            // Reset the preload guard so a later OnMeshLoaded/Update can retry. A single
+            // transient UnityWebRequest failure against StreamingAssets (not uncommon on
+            // Android) must NOT permanently disable the bundled portal path. _clustersLoaded
+            // stays false so the trigger handler keeps gating until a load succeeds.
+            _clustersPreloaded = false;
             yield break;
         }
 
