@@ -69,15 +69,16 @@ def main():
 
     # 4) Undistort into the dense workspace (COLMAP format) for OpenMVS.
     sh(["colmap", "image_undistorter", "--image_path", images_dir,
-        "--input_path", sparse_tri, "--output_path", dense_dir, "--output_type", "COLMAP"])
+        "--input_path", sparse_tri, "--output_path", dense_dir, "--output_type", "COLMAP",
+        "--num_threads", "1"])
 
     # 5) OpenMVS: interface -> densify -> mesh -> (refine) -> texture.
     sh(["InterfaceCOLMAP", "-i", dense_dir, "-o", os.path.join(mvs_dir, "scene.mvs")])
-    sh(["DensifyPointCloud", "-i", "scene.mvs", "-o", "dense.mvs", "-w", mvs_dir])
-    sh(["ReconstructMesh", "-i", "dense.mvs", "-o", "mesh.mvs", "-w", mvs_dir])
-    mesh_in = "mesh.mvs"
+    sh(["DensifyPointCloud", "-i", "scene.mvs", "-o", "dense.mvs", "-w", mvs_dir, "--cuda-device", "-2"])
+    sh(["ReconstructMesh", "-i", "dense.mvs", "-o", "dense.mvs", "-w", mvs_dir])
+    mesh_in = "dense.mvs"
     if not skip_refine:
-        sh(["RefineMesh", "-i", "mesh.mvs", "-o", "refined.mvs", "-w", mvs_dir])
+        sh(["RefineMesh", "-i", "dense.mvs", "-o", "refined.mvs", "-w", mvs_dir])
         mesh_in = "refined.mvs"
     sh(["TextureMesh", "-i", mesh_in, "-o", "textured.obj", "-w", mvs_dir])
 

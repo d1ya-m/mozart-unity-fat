@@ -13199,7 +13199,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::QuestDatasetRecorder
   leftCamera: {fileID: 1376053744}
-  captureIntervalSeconds: 0.35
+  captureIntervalSeconds: 0.25
   jpegQuality: 90
   maxFrames: 600
   scanning: 0
