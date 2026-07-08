@@ -146,9 +146,11 @@ Assets/StreamingAssets/clusters/ScreenCapture_*
 mozart-unity-fat.slnx
 
 # XR Simulation local/generated settings (per-machine, not source)
-Assets/XR/Loaders/
+Assets/XR/Loaders/SimulationLoader.asset
+Assets/XR/Loaders/SimulationLoader.asset.meta
 Assets/XR/Resources/
 Assets/XR/Resources.meta
 Assets/XR/UserSimulationSettings/
 Assets/XR/UserSimulationSettings.meta
 Assets/CompositionLayers.meta
+SESSION_LOG_PR_FINALIZATION.md
