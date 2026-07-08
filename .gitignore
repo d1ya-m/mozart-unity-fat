@@ -154,3 +154,11 @@ Assets/XR/UserSimulationSettings/
 Assets/XR/UserSimulationSettings.meta
 Assets/CompositionLayers.meta
 SESSION_LOG_PR_FINALIZATION.md
+
+# Generated segmentation output — regenerate with export_clusters_normals.py (see README)
+Assets/StreamingAssets/clusters/cluster*.obj
+Assets/StreamingAssets/clusters/cluster*.obj.meta
+Assets/StreamingAssets/clusters/clusters.json
+Assets/StreamingAssets/clusters/clusters.json.meta
+Assets/StreamingAssets/clusters/centres.txt
+Assets/StreamingAssets/clusters/centres.txt.meta
